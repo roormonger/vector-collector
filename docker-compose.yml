@@ -1,0 +1,22 @@
+# Convenience wrapper — still a single app container (SQLite inside).
+services:
+  logdb:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
+      SESSION_SECRET: ${SESSION_SECRET:-dev-session-secret-change-me}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
+      RETENTION_DAYS: ${RETENTION_DAYS:-14}
+      BOOTSTRAP_INGEST_KEY: ${BOOTSTRAP_INGEST_KEY:-}
+      BOOTSTRAP_QUERY_KEY: ${BOOTSTRAP_QUERY_KEY:-}
+      EMBEDDINGS_BASE_URL: ${EMBEDDINGS_BASE_URL:-}
+      EMBEDDINGS_MODEL: ${EMBEDDINGS_MODEL:-}
+      EMBEDDINGS_API_KEY: ${EMBEDDINGS_API_KEY:-}
+    volumes:
+      - logdb-data:/data
+
+volumes:
+  logdb-data:
