@@ -29,15 +29,15 @@ export const api = {
     }),
   logout: () => request<{ ok: boolean }>('/v1/admin/logout', { method: 'POST' }),
   agents: () => request<Agent[]>('/v1/admin/agents'),
-  createAgent: (body: { password: string; name: string }) =>
+  createAgent: (body: { password: string; name: string; platform?: string }) =>
     request<AgentConnectInfo & { agent: Agent }>('/v1/admin/agents', {
       method: 'POST',
       body: JSON.stringify(body),
     }),
-  agentConnectInfo: (id: string, password: string) =>
+  agentConnectInfo: (id: string, password: string, platform?: string) =>
     request<AgentConnectInfo>(`/v1/admin/agents/${id}/connect-info`, {
       method: 'POST',
-      body: JSON.stringify({ password }),
+      body: JSON.stringify({ password, platform }),
     }),
   removeAgent: (id: string, password: string) =>
     request<{ ok: boolean }>(`/v1/admin/agents/${id}/remove`, {
@@ -55,6 +55,7 @@ export const api = {
       body: JSON.stringify({ password }),
     }),
   stats: () => request<Stats>('/v1/admin/stats'),
+  recentEvents: () => request<RecentEvent[]>('/v1/admin/recent-events'),
   settings: () => request<Settings>('/v1/admin/settings'),
   saveSettings: (body: { retention_days?: number; max_events?: number | null }) =>
     request<{ ok: boolean }>('/v1/admin/settings', {
@@ -80,11 +81,20 @@ export type Agent = {
   recent_containers: { name: string; count: number }[]
 }
 
+export type VectorPreset = {
+  id: string
+  label: string
+  description: string
+  yaml: string
+}
+
 export type AgentConnectInfo = {
   token: string
   uri: string
   env: string
   yaml: string
+  platform?: string
+  presets?: VectorPreset[]
 }
 
 export type McpConnectInfo = {
@@ -92,6 +102,16 @@ export type McpConnectInfo = {
   url: string
   env: string
   yaml: string
+}
+
+export type RecentEvent = {
+  id: string
+  ts: string
+  host?: string | null
+  container_name?: string | null
+  stream?: string | null
+  message: string
+  message_truncated?: boolean
 }
 
 export type Stats = {

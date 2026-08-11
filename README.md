@@ -58,9 +58,21 @@ Generated Vector/MCP snippets in the admin UI are filled from this value. Restar
 
 ## Connect Vector (each machine)
 
-1. In the admin UI → **Agents** → **Create agent**. Re-enter the admin password, then set a name (this becomes the log hostname, e.g. `app-server-1`).
-2. Copy the generated Vector yaml and env (URIs come from `PUBLIC_BASE_URL`). Vector **0.57+** requires `VECTOR_DANGEROUSLY_ALLOW_ENV_VAR_INTERPOLATION=true` for `${INGEST_TOKEN}` to expand (included in the wizard env block).
-3. Run Vector on that machine. The collector forces `host` from the agent name on ingest — no Vector remap / `AGENT_NAME` needed.
+1. In the admin UI → **Agents** → **Create agent**. Re-enter the admin password, set a name (this becomes the log hostname, e.g. `app-server-1`), and pick a **platform preset**.
+2. Copy the generated Vector yaml and env (URIs come from `PUBLIC_BASE_URL`). You can switch presets after create/reveal — same ingest token, different yaml. Vector **0.57+** requires `VECTOR_DANGEROUSLY_ALLOW_ENV_VAR_INTERPOLATION=true` for `${INGEST_TOKEN}` to expand (included in the wizard env block).
+3. Run Vector on that machine. The collector forces `host` from the agent name on ingest — no Vector `AGENT_NAME` remap needed.
+
+### Platform presets
+
+| Preset | Vector source | Notes |
+|--------|---------------|--------|
+| **Docker** | `docker_logs` | Needs Docker socket access |
+| **Linux** | `journald` | Remaps `MESSAGE` / unit → searchable fields |
+| **Windows** | `windows_event_log` | Application, System, Security; `render_message` + Channel remap |
+| **macOS** | `file` | Common `/var/log` and `/Library/Logs` paths (edit as needed) |
+| **Files** | `file` | Generic globs — edit `include` for your apps |
+
+Example (Docker preset):
 
 ```yaml
 data_dir: /var/lib/vector   # required when using disk buffers
@@ -69,10 +81,20 @@ sources:
   docker:
     type: docker_logs
 
+transforms:
+  normalize:
+    type: remap
+    inputs: [docker]
+    source: |
+      .message = string!(.message)
+      if !exists(.source_type) {
+        .source_type = "docker_logs"
+      }
+
 sinks:
   vector_collector:
     type: http
-    inputs: [docker]
+    inputs: [normalize]
     uri: http://YOUR_COLLECTOR:8080/v1/logs
     encoding: { codec: json }
     compression: gzip
@@ -125,18 +147,33 @@ Ingest (bearer ingest key from an agent): `POST /v1/logs`, `GET /v1/ingest/healt
 
 ## Env vars
 
-See [`.env.example`](.env.example). Notable:
+See [`.env.example`](.env.example) for a copy-paste template.
 
 | Var | Default | Purpose |
 |-----|---------|---------|
-| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | `admin` / `admin` | UI login |
-| `SESSION_SECRET` | (dev default) | Cookie signing — change in production |
-| `PUBLIC_BASE_URL` | `http://localhost:8080` | URL in Vector/MCP snippets |
-| `DATA_DIR` | `/data` | SQLite volume path |
-| `RETENTION_DAYS` | `14` | Auto-trim age |
-| `MAX_EVENTS` | unset | Optional row cap |
-| `BOOTSTRAP_*_KEY` | unset | Seed API keys on boot |
-| `EMBEDDINGS_BASE_URL` + `MODEL` | unset | Enable semantic search |
+| `BIND` | `0.0.0.0:8080` | Listen address |
+| `DATA_DIR` | `/data` | Data directory (created on start) |
+| `DATABASE_PATH` | `$DATA_DIR/logdb.sqlite` | SQLite file path |
+| `WEB_DIR` | unset | Static admin UI directory; if unset or missing, API-only |
+| `ADMIN_USERNAME` | `admin` | Admin UI login |
+| `ADMIN_PASSWORD` | `admin` | Admin UI password |
+| `SESSION_SECRET` | `dev-session-secret-change-me` | Cookie signing — change in production |
+| `PUBLIC_BASE_URL` | `http://localhost:8080` | Base URL in Vector/MCP snippets |
+| `RETENTION_DAYS` | `14` | Auto-delete events older than N days |
+| `MAX_EVENTS` | unset | Optional max row cap (oldest trimmed) |
+| `WRITE_QUEUE_CAPACITY` | `64` | In-memory ingest queue size |
+| `MAX_BODY_BYTES` | `10485760` (10 MiB) | Max ingest request body |
+| `PER_KEY_RPS` | `50` | Per-API-key rate limit |
+| `BOOTSTRAP_INGEST_KEY` | unset | Seed ingest API key on boot |
+| `BOOTSTRAP_QUERY_KEY` | unset | Seed query API key on boot |
+| `EMBEDDINGS_BASE_URL` | unset | OpenAI-compatible embeddings API base |
+| `EMBEDDINGS_MODEL` | unset | Embedding model (URL + model both required for semantic search) |
+| `EMBEDDINGS_API_KEY` | unset | Optional auth for embeddings API |
+| `EMBEDDING_DIM` | `1536` | Expected embedding vector size |
+| `EMBED_SAMPLE_RATE` | `0.02` | Fraction of events queued for embedding |
+| `RUST_LOG` | `info` | Log filter (`tracing-subscriber`) |
+
+`INGEST_TOKEN` and `VECTOR_DANGEROUSLY_ALLOW_ENV_VAR_INTERPOLATION` are for **Vector agents**, not this process.
 
 ## Architecture notes
 

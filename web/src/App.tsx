@@ -4,12 +4,13 @@ import {
   type Agent,
   type AgentConnectInfo,
   type McpConnectInfo,
+  type RecentEvent,
   type Settings,
   type Stats,
 } from './lib/api'
 import { Badge, Button, Card, Input, Label } from './components/ui'
 
-type Tab = 'overview' | 'agents' | 'mcp' | 'retention'
+type Tab = 'overview' | 'agents' | 'mcp' | 'settings'
 
 export default function App() {
   const [user, setUser] = useState<string | null>(null)
@@ -32,44 +33,52 @@ export default function App() {
   }
 
   return (
-    <Shell>
-      <header className="mb-8 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="text-sm uppercase tracking-[0.2em] text-[var(--text-muted)]">Vector Collector</p>
-          <h1 className="mt-1 text-3xl font-semibold tracking-tight">Admin</h1>
-          <p className="mt-1 text-[var(--text-muted)]">Signed in as {user}</p>
+    <div className="min-h-screen">
+      <header className="sticky top-0 z-20 border-b border-[var(--border)] bg-[var(--bg)]/90 backdrop-blur-md">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
+          <div className="flex min-w-0 flex-wrap items-center gap-3 sm:gap-5">
+            <div className="min-w-0">
+              <p className="truncate text-base font-semibold tracking-tight">Vector Collector</p>
+              <p className="truncate text-xs text-[var(--text-muted)]">{user}</p>
+            </div>
+            <nav className="flex flex-wrap gap-1">
+              {(
+                [
+                  ['overview', 'Overview'],
+                  ['agents', 'Agents'],
+                  ['mcp', 'MCP'],
+                  ['settings', 'Settings'],
+                ] as const
+              ).map(([id, label]) => (
+                <Button
+                  key={id}
+                  variant={tab === id ? 'default' : 'ghost'}
+                  onClick={() => setTab(id)}
+                >
+                  {label}
+                </Button>
+              ))}
+            </nav>
+          </div>
+          <Button
+            variant="ghost"
+            onClick={async () => {
+              await api.logout()
+              setUser(null)
+            }}
+          >
+            Log out
+          </Button>
         </div>
-        <Button
-          variant="ghost"
-          onClick={async () => {
-            await api.logout()
-            setUser(null)
-          }}
-        >
-          Log out
-        </Button>
       </header>
 
-      <nav className="mb-6 flex flex-wrap gap-2">
-        {(
-          [
-            ['overview', 'Overview'],
-            ['agents', 'Agents'],
-            ['mcp', 'MCP'],
-            ['retention', 'Retention'],
-          ] as const
-        ).map(([id, label]) => (
-          <Button key={id} variant={tab === id ? 'default' : 'ghost'} onClick={() => setTab(id)}>
-            {label}
-          </Button>
-        ))}
-      </nav>
-
-      {tab === 'overview' && <Overview />}
-      {tab === 'agents' && <AgentsPanel />}
-      {tab === 'mcp' && <McpPanel />}
-      {tab === 'retention' && <RetentionPanel />}
-    </Shell>
+      <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
+        {tab === 'overview' && <Overview />}
+        {tab === 'agents' && <AgentsPanel />}
+        {tab === 'mcp' && <McpPanel />}
+        {tab === 'settings' && <SettingsPanel />}
+      </main>
+    </div>
   )
 }
 
@@ -134,34 +143,147 @@ function Login({ onSuccess }: { onSuccess: (user: string) => void }) {
 
 function Overview() {
   const [stats, setStats] = useState<Stats | null>(null)
+  const [events, setEvents] = useState<RecentEvent[]>([])
+  const [liveError, setLiveError] = useState<string | null>(null)
+  const [paused, setPaused] = useState(false)
+
   useEffect(() => {
-    api.stats().then(setStats).catch(console.error)
+    let cancelled = false
+    const tick = () => {
+      api
+        .stats()
+        .then((s) => {
+          if (!cancelled) setStats(s)
+        })
+        .catch(console.error)
+    }
+    tick()
+    const id = window.setInterval(tick, 5000)
+    return () => {
+      cancelled = true
+      window.clearInterval(id)
+    }
   }, [])
-  if (!stats) return <Card>Loading stats…</Card>
+
+  useEffect(() => {
+    if (paused) return
+    let cancelled = false
+    const tick = () => {
+      api
+        .recentEvents()
+        .then((rows) => {
+          if (!cancelled) {
+            setEvents(rows)
+            setLiveError(null)
+          }
+        })
+        .catch((err) => {
+          if (!cancelled) {
+            setLiveError(err instanceof Error ? err.message : 'Failed to load events')
+          }
+        })
+    }
+    tick()
+    const id = window.setInterval(tick, 2500)
+    return () => {
+      cancelled = true
+      window.clearInterval(id)
+    }
+  }, [paused])
+
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      <Stat title="Events stored" value={stats.events} />
-      <Stat title="Agents" value={stats.agents} />
-      <Stat title="Queue depth" value={stats.queue_depth ?? 0} />
-      <Stat title="Ingest accepted" value={stats.ingest_accepted ?? 0} />
-      <Stat title="Ingest 429s" value={stats.ingest_429 ?? 0} />
-      <Stat title="Embed queue" value={stats.embed_queue} />
-      <Card className="sm:col-span-2 lg:col-span-3">
-        <p className="text-sm text-[var(--text-muted)]">Semantic search</p>
-        <p className="mt-1 text-lg">
-          {stats.embeddings_enabled ? 'Enabled (OpenAI-compatible embeddings)' : 'Disabled — keyword/FTS only'}
-        </p>
-      </Card>
-      <Card className="sm:col-span-2 lg:col-span-3">
-        <p className="text-sm text-[var(--text-muted)]">REST API</p>
-        <p className="mt-1 text-lg">
+    <div className="space-y-6">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+        {stats ? (
+          <>
+            <Stat title="Events stored" value={stats.events} />
+            <Stat title="Agents" value={stats.agents} />
+            <Stat title="Queue depth" value={stats.queue_depth ?? 0} />
+            <Stat title="Ingest accepted" value={stats.ingest_accepted ?? 0} />
+            <Stat title="Ingest 429s" value={stats.ingest_429 ?? 0} />
+            <Stat title="Embed queue" value={stats.embed_queue} />
+          </>
+        ) : (
+          <Card className="sm:col-span-2 lg:col-span-3 xl:col-span-6">Loading stats…</Card>
+        )}
+      </div>
+
+      {stats && (
+        <div className="flex flex-wrap gap-4 text-sm text-[var(--text-muted)]">
+          <span>
+            Semantic search:{' '}
+            <span className="text-[var(--text)]">
+              {stats.embeddings_enabled ? 'enabled' : 'FTS only'}
+            </span>
+          </span>
           <a className="text-[var(--accent)] underline-offset-2 hover:underline" href="/docs">
-            OpenAPI / Swagger docs
+            API docs
           </a>
-        </p>
+        </div>
+      )}
+
+      <Card className="overflow-hidden p-0">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
+          <div>
+            <h2 className="text-lg font-medium">Live logs</h2>
+            <p className="text-sm text-[var(--text-muted)]">
+              Newest events · polls every 2.5s
+              {paused ? ' · paused' : ''}
+            </p>
+          </div>
+          <Button variant="ghost" onClick={() => setPaused((p) => !p)}>
+            {paused ? 'Resume' : 'Pause'}
+          </Button>
+        </div>
+        {liveError && (
+          <p className="border-b border-[var(--border)] px-4 py-2 text-sm text-[var(--danger)]">
+            {liveError}
+          </p>
+        )}
+        <div className="max-h-[min(60vh,640px)] overflow-auto font-mono text-xs leading-relaxed">
+          {events.length === 0 && !liveError ? (
+            <p className="px-4 py-8 text-center text-[var(--text-muted)]">No events yet</p>
+          ) : (
+            <table className="w-full border-collapse text-left">
+              <tbody>
+                {events.map((ev) => (
+                  <tr
+                    key={ev.id}
+                    className="border-b border-[var(--border)]/60 hover:bg-[var(--bg-muted)]/40"
+                  >
+                    <td className="whitespace-nowrap px-3 py-1.5 align-top text-[var(--text-muted)]">
+                      {formatShortTime(ev.ts)}
+                    </td>
+                    <td className="max-w-[8rem] truncate px-2 py-1.5 align-top text-emerald-300/90">
+                      {ev.host ?? '—'}
+                    </td>
+                    <td className="max-w-[10rem] truncate px-2 py-1.5 align-top text-sky-300/90">
+                      {ev.container_name ?? '—'}
+                    </td>
+                    <td className="px-3 py-1.5 align-top break-words text-[var(--text)]">
+                      {ev.message}
+                      {ev.message_truncated ? '…' : ''}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
       </Card>
     </div>
   )
+}
+
+function formatShortTime(value: string) {
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return value
+  return d.toLocaleTimeString(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  })
 }
 
 function Stat({ title, value }: { title: string; value: number }) {
@@ -246,8 +368,8 @@ function AgentsPanel() {
             <h2 className="text-lg font-medium">Agents</h2>
             <p className="text-sm text-[var(--text-muted)]">
               Create an agent per machine. The name becomes the log hostname. Each agent gets its own ingest
-              key and Vector config. Removing an agent revokes its key; stored logs stay until retention
-              trims them. On Vector 0.57+, keep{' '}
+              key and platform Vector presets (Docker, Linux, Windows, macOS, files). Removing an agent
+              revokes its key; stored logs stay until retention trims them. On Vector 0.57+, keep{' '}
               <code className="text-xs">VECTOR_DANGEROUSLY_ALLOW_ENV_VAR_INTERPOLATION=true</code>.
             </p>
             <PublicUrlHint url={publicBaseUrl} />
@@ -339,15 +461,19 @@ function ModalShell({
   title,
   children,
   onClose,
+  wide,
 }: {
   title: string
   children: ReactNode
   onClose: () => void
+  wide?: boolean
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
       <div
-        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] p-5 shadow-lg"
+        className={`max-h-[90vh] w-full overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] p-5 shadow-lg ${
+          wide ? 'max-w-2xl' : 'max-w-lg'
+        }`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-start justify-between gap-3">
@@ -362,16 +488,81 @@ function ModalShell({
   )
 }
 
+const PLATFORM_OPTIONS = [
+  {
+    id: 'docker',
+    label: 'Docker',
+    description: 'Container logs via docker_logs (Linux/macOS Docker Engine or Desktop)',
+  },
+  {
+    id: 'linux',
+    label: 'Linux',
+    description: 'systemd journal (journald) with message remap',
+  },
+  {
+    id: 'windows',
+    label: 'Windows',
+    description: 'Windows Event Log (Application, System, Security)',
+  },
+  {
+    id: 'macos',
+    label: 'macOS',
+    description: 'Common system/app log files under /var/log and /Library/Logs',
+  },
+  {
+    id: 'files',
+    label: 'Files',
+    description: 'Tail arbitrary log files — edit the include paths',
+  },
+] as const
+
+function PlatformPicker({
+  value,
+  onChange,
+  description,
+}: {
+  value: string
+  onChange: (id: string) => void
+  description?: string | null
+}) {
+  return (
+    <div className="space-y-2">
+      <Label>Platform preset</Label>
+      <div className="flex flex-wrap gap-1">
+        {PLATFORM_OPTIONS.map((p) => (
+          <Button
+            key={p.id}
+            type="button"
+            variant={value === p.id ? 'default' : 'ghost'}
+            onClick={() => onChange(p.id)}
+          >
+            {p.label}
+          </Button>
+        ))}
+      </div>
+      {description && <p className="text-sm text-[var(--text-muted)]">{description}</p>}
+    </div>
+  )
+}
+
 function CopyBlocks({
   tokenLabel,
   yamlLabel,
   info,
+  platform,
+  onPlatformChange,
 }: {
   tokenLabel: string
   yamlLabel: string
-  info: { token: string; env: string; yaml: string }
+  info: AgentConnectInfo | McpConnectInfo
+  platform?: string
+  onPlatformChange?: (id: string) => void
 }) {
   const [copied, setCopied] = useState<string | null>(null)
+  const presets = 'presets' in info ? info.presets : undefined
+  const activePlatform = platform ?? ('platform' in info ? info.platform : undefined) ?? 'docker'
+  const activePreset = presets?.find((p) => p.id === activePlatform)
+  const yaml = activePreset?.yaml ?? info.yaml
   const copy = async (label: string, value: string) => {
     try {
       await navigator.clipboard.writeText(value)
@@ -400,14 +591,21 @@ function CopyBlocks({
         </div>
         <pre className="overflow-x-auto rounded-md bg-[var(--bg)] p-2 text-xs">{info.env}</pre>
       </div>
+      {presets && onPlatformChange && (
+        <PlatformPicker
+          value={activePlatform}
+          onChange={onPlatformChange}
+          description={activePreset?.description}
+        />
+      )}
       <div>
         <div className="mb-1 flex items-center justify-between gap-2">
           <Label>{yamlLabel}</Label>
-          <Button variant="ghost" onClick={() => copy('yaml', info.yaml)}>
+          <Button variant="ghost" onClick={() => copy('yaml', yaml)}>
             {copied === 'yaml' ? 'Copied' : 'Copy'}
           </Button>
         </div>
-        <pre className="max-h-64 overflow-auto rounded-md bg-[var(--bg)] p-2 text-xs">{info.yaml}</pre>
+        <pre className="max-h-72 overflow-auto rounded-md bg-[var(--bg)] p-2 text-xs">{yaml}</pre>
       </div>
     </div>
   )
@@ -423,12 +621,13 @@ function AgentWizardModal({
   const [step, setStep] = useState<'password' | 'name' | 'done'>('password')
   const [password, setPassword] = useState('')
   const [name, setName] = useState('')
+  const [platform, setPlatform] = useState('docker')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [info, setInfo] = useState<(AgentConnectInfo & { agent: Agent }) | null>(null)
 
   return (
-    <ModalShell title="Create agent" onClose={onClose}>
+    <ModalShell title="Create agent" onClose={onClose} wide={step === 'done'}>
       {step === 'password' && (
         <form
           className="space-y-3"
@@ -465,8 +664,13 @@ function AgentWizardModal({
             setBusy(true)
             setError(null)
             try {
-              const res = await api.createAgent({ password, name: name.trim() })
+              const res = await api.createAgent({
+                password,
+                name: name.trim(),
+                platform,
+              })
               setInfo(res)
+              setPlatform(res.platform ?? platform)
               setStep('done')
               onCreated()
             } catch (err) {
@@ -491,6 +695,14 @@ function AgentWizardModal({
               autoFocus
             />
           </div>
+          <PlatformPicker
+            value={platform}
+            onChange={setPlatform}
+            description={PLATFORM_OPTIONS.find((p) => p.id === platform)?.description}
+          />
+          <p className="text-sm text-[var(--text-muted)]">
+            You can switch presets after create — same token, different Vector yaml.
+          </p>
           {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
           <div className="flex gap-2">
             <Button type="button" variant="ghost" onClick={() => setStep('password')}>
@@ -505,9 +717,16 @@ function AgentWizardModal({
       {step === 'done' && info && (
         <div className="space-y-3">
           <p className="text-sm text-[var(--accent)]">
-            Agent <strong>{info.agent.name}</strong> created. Copy the Vector config onto that machine.
+            Agent <strong>{info.agent.name}</strong> created. Pick a platform preset and copy the Vector
+            config onto that machine.
           </p>
-          <CopyBlocks tokenLabel="Ingest token" yamlLabel="Vector yaml" info={info} />
+          <CopyBlocks
+            tokenLabel="Ingest token"
+            yamlLabel="Vector yaml"
+            info={info}
+            platform={platform}
+            onPlatformChange={setPlatform}
+          />
           <Button onClick={onClose}>Done</Button>
         </div>
       )}
@@ -517,12 +736,13 @@ function AgentWizardModal({
 
 function AgentConnectModal({ agent, onClose }: { agent: Agent; onClose: () => void }) {
   const [password, setPassword] = useState('')
+  const [platform, setPlatform] = useState('docker')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [info, setInfo] = useState<AgentConnectInfo | null>(null)
 
   return (
-    <ModalShell title={`Connect info — ${agent.host}`} onClose={onClose}>
+    <ModalShell title={`Connect info — ${agent.host}`} onClose={onClose} wide={!!info}>
       {!info ? (
         <form
           className="space-y-3"
@@ -532,7 +752,9 @@ function AgentConnectModal({ agent, onClose }: { agent: Agent; onClose: () => vo
             setBusy(true)
             setError(null)
             try {
-              setInfo(await api.agentConnectInfo(agent.id, password))
+              const res = await api.agentConnectInfo(agent.id, password, platform)
+              setInfo(res)
+              setPlatform(res.platform ?? platform)
             } catch (err) {
               setError(err instanceof Error ? err.message : 'Failed')
             } finally {
@@ -553,6 +775,7 @@ function AgentConnectModal({ agent, onClose }: { agent: Agent; onClose: () => vo
               autoFocus
             />
           </div>
+          <PlatformPicker value={platform} onChange={setPlatform} />
           {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
           <Button type="submit" disabled={!password || busy}>
             {busy ? 'Checking…' : 'Reveal'}
@@ -560,7 +783,13 @@ function AgentConnectModal({ agent, onClose }: { agent: Agent; onClose: () => vo
         </form>
       ) : (
         <div className="space-y-3">
-          <CopyBlocks tokenLabel="Ingest token" yamlLabel="Vector yaml" info={info} />
+          <CopyBlocks
+            tokenLabel="Ingest token"
+            yamlLabel="Vector yaml"
+            info={info}
+            platform={platform}
+            onPlatformChange={setPlatform}
+          />
           <Button onClick={onClose}>Done</Button>
         </div>
       )}
@@ -721,7 +950,7 @@ function McpPanel() {
   )
 }
 
-function RetentionPanel() {
+function SettingsPanel() {
   const [settings, setSettings] = useState<Settings | null>(null)
   const [days, setDays] = useState('14')
   const [maxEvents, setMaxEvents] = useState('')

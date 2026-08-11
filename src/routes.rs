@@ -52,6 +52,7 @@ pub fn app_router(state: AppState, web_dir: Option<std::path::PathBuf>) -> Route
         .route("/v1/admin/mcp/connect-info", post(admin_mcp_connect_info))
         .route("/v1/admin/mcp/rotate", post(admin_mcp_rotate))
         .route("/v1/admin/stats", get(admin_stats))
+        .route("/v1/admin/recent-events", get(admin_recent_events))
         .route("/v1/admin/settings", get(admin_get_settings).put(admin_put_settings))
         .with_state(state);
 
@@ -431,11 +432,15 @@ async fn admin_agents(
 struct CreateAgentBody {
     password: String,
     name: String,
+    #[serde(default)]
+    platform: Option<String>,
 }
 
 #[derive(Deserialize)]
 struct PasswordBody {
     password: String,
+    #[serde(default)]
+    platform: Option<String>,
 }
 
 fn require_admin_password(state: &AppState, jar: &CookieJar, password: &str) -> AppResult<()> {
@@ -446,53 +451,6 @@ fn require_admin_password(state: &AppState, jar: &CookieJar, password: &str) -> 
     Ok(())
 }
 
-fn vector_agent_bundle(public_base_url: &str, token: &str) -> Value {
-    let base = public_base_url.trim_end_matches('/');
-    let uri = format!("{base}/v1/logs");
-    let health = format!("{base}/v1/ingest/health");
-    let yaml = format!(
-        r#"data_dir: /var/lib/vector
-
-sources:
-  docker:
-    type: docker_logs
-
-sinks:
-  vector_collector:
-    type: http
-    inputs: [docker]
-    uri: {uri}
-    method: post
-    encoding:
-      codec: json
-    compression: gzip
-    auth:
-      strategy: bearer
-      token: "${{INGEST_TOKEN}}"
-    healthcheck:
-      enabled: true
-      uri: {health}
-    batch:
-      max_bytes: 1048576
-      max_events: 500
-      timeout_secs: 5
-    buffer:
-      type: disk
-      max_size: 268435488
-"#
-    );
-    // Vector 0.57+ leaves ${INGEST_TOKEN} literal unless interpolation is explicitly enabled.
-    let env = format!(
-        "INGEST_TOKEN={token}\nVECTOR_DANGEROUSLY_ALLOW_ENV_VAR_INTERPOLATION=true"
-    );
-    json!({
-        "token": token,
-        "uri": uri,
-        "env": env,
-        "yaml": yaml,
-    })
-}
-
 async fn admin_create_agent(
     State(state): State<AppState>,
     jar: CookieJar,
@@ -500,7 +458,11 @@ async fn admin_create_agent(
 ) -> AppResult<impl IntoResponse> {
     require_admin_password(&state, &jar, &body.password)?;
     let (agent, token) = create_agent(&state.db, &body.name)?;
-    let mut bundle = vector_agent_bundle(&state.config.public_base_url, &token);
+    let mut bundle = crate::vector_presets::vector_agent_bundle(
+        &state.config.public_base_url,
+        &token,
+        body.platform.as_deref(),
+    );
     if let Some(obj) = bundle.as_object_mut() {
         obj.insert("agent".into(), agent);
     }
@@ -515,9 +477,10 @@ async fn admin_agent_connect_info(
 ) -> AppResult<impl IntoResponse> {
     require_admin_password(&state, &jar, &body.password)?;
     let (_hostname, token) = agent_connect_secret(&state.db, &id)?;
-    Ok(Json(vector_agent_bundle(
+    Ok(Json(crate::vector_presets::vector_agent_bundle(
         &state.config.public_base_url,
         &token,
+        body.platform.as_deref(),
     )))
 }
 
@@ -601,6 +564,14 @@ async fn admin_stats(
         );
     }
     Ok(Json(stats))
+}
+
+async fn admin_recent_events(
+    State(state): State<AppState>,
+    jar: CookieJar,
+) -> AppResult<impl IntoResponse> {
+    require_admin(&state, &jar)?;
+    Ok(Json(query::recent_events(&state.db, 80)?))
 }
 
 #[derive(Deserialize)]

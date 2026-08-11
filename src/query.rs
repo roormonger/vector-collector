@@ -886,3 +886,37 @@ pub fn stats(db: &Db) -> AppResult<Value> {
         "embed_queue": embed_pending,
     }))
 }
+
+/// Newest events for the admin live viewer (newest first).
+pub fn recent_events(db: &Db, limit: usize) -> AppResult<Vec<Value>> {
+    let limit = limit.clamp(1, 200);
+    let conn = db.lock();
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, ts, host, container_name, stream, message
+             FROM log_events
+             ORDER BY ts DESC, id DESC
+             LIMIT ?1",
+        )
+        .map_err(|e| AppError::Internal(e.into()))?;
+    let rows = stmt
+        .query_map(params![limit as i64], |row| {
+            let message: String = row.get(5)?;
+            let (msg, truncated) = truncate_msg(&message, 400);
+            Ok(json!({
+                "id": row.get::<_, String>(0)?,
+                "ts": row.get::<_, String>(1)?,
+                "host": row.get::<_, Option<String>>(2)?,
+                "container_name": row.get::<_, Option<String>>(3)?,
+                "stream": row.get::<_, Option<String>>(4)?,
+                "message": msg,
+                "message_truncated": truncated,
+            }))
+        })
+        .map_err(|e| AppError::Internal(e.into()))?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r.map_err(|e| AppError::Internal(e.into()))?);
+    }
+    Ok(out)
+}

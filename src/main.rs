@@ -10,6 +10,7 @@ mod query;
 mod rate_limit;
 mod routes;
 mod state;
+mod vector_presets;
 mod workers;
 
 use crate::auth::{ensure_bootstrap_key, sync_admin_credentials, KeyScopes};
