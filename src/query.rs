@@ -824,16 +824,14 @@ pub fn list_agents(db: &Db) -> AppResult<Vec<Value>> {
 
 fn agent_status(last_seen_at: &Option<String>, now: chrono::DateTime<chrono::Utc>) -> &'static str {
     let Some(raw) = last_seen_at else {
-        return "never";
+        return "offline";
     };
     let Ok(ts) = chrono::DateTime::parse_from_rfc3339(raw) else {
-        return "unknown";
+        return "offline";
     };
     let age = now.signed_duration_since(ts.with_timezone(&chrono::Utc));
     if age < chrono::Duration::minutes(2) {
         "online"
-    } else if age < chrono::Duration::minutes(15) {
-        "stale"
     } else {
         "offline"
     }

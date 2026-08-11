@@ -299,12 +299,9 @@ function statusStyles(status: Agent['status']) {
   switch (status) {
     case 'online':
       return 'bg-emerald-500/20 text-emerald-300'
-    case 'stale':
-      return 'bg-amber-500/20 text-amber-200'
     case 'offline':
-      return 'bg-rose-500/15 text-rose-300'
     default:
-      return 'bg-[var(--bg-muted)] text-[var(--text-muted)]'
+      return 'bg-rose-500/15 text-rose-300'
   }
 }
 
@@ -368,8 +365,9 @@ function AgentsPanel() {
             <h2 className="text-lg font-medium">Agents</h2>
             <p className="text-sm text-[var(--text-muted)]">
               Create an agent per machine. The name becomes the log hostname. Each agent gets its own ingest
-              key and platform Vector presets (Docker, Linux, Windows, macOS, files). Removing an agent
-              revokes its key; stored logs stay until retention trims them. On Vector 0.57+, keep{' '}
+              key and platform Vector presets (Docker, Linux, Windows, macOS, files). Status is Online when
+              Vector heartbeats or sends logs (within ~2 minutes). Removing an agent revokes its key; stored
+              logs stay until retention trims them. On Vector 0.57+, keep{' '}
               <code className="text-xs">VECTOR_DANGEROUSLY_ALLOW_ENV_VAR_INTERPOLATION=true</code>.
             </p>
             <PublicUrlHint url={publicBaseUrl} />
@@ -502,7 +500,7 @@ const PLATFORM_OPTIONS = [
   {
     id: 'windows',
     label: 'Windows',
-    description: 'Windows Event Log (Application, System, Security)',
+    description: 'Windows Event Log — token inlined in YAML (no env file)',
   },
   {
     id: 'macos',
@@ -551,18 +549,28 @@ function CopyBlocks({
   info,
   platform,
   onPlatformChange,
+  yamlFilename,
 }: {
   tokenLabel: string
   yamlLabel: string
   info: AgentConnectInfo | McpConnectInfo
   platform?: string
   onPlatformChange?: (id: string) => void
+  yamlFilename?: string
 }) {
   const [copied, setCopied] = useState<string | null>(null)
   const presets = 'presets' in info ? info.presets : undefined
   const activePlatform = platform ?? ('platform' in info ? info.platform : undefined) ?? 'docker'
   const activePreset = presets?.find((p) => p.id === activePlatform)
   const yaml = activePreset?.yaml ?? info.yaml
+  const env = activePreset?.env ?? info.env
+  const inlineToken =
+    activePreset?.inline_token ??
+    ('inline_token' in info ? info.inline_token : undefined) ??
+    false
+  const downloadName =
+    yamlFilename ??
+    (presets ? `vector-collector-${activePlatform}.yaml` : 'vector-collector.yaml')
   const copy = async (label: string, value: string) => {
     try {
       await navigator.clipboard.writeText(value)
@@ -570,6 +578,15 @@ function CopyBlocks({
     } catch {
       setCopied(null)
     }
+  }
+  const download = (filename: string, value: string) => {
+    const blob = new Blob([value], { type: 'text/yaml;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(url)
   }
   return (
     <div className="space-y-3">
@@ -582,15 +599,6 @@ function CopyBlocks({
         </div>
         <code className="block break-all rounded-md bg-[var(--bg)] px-2 py-2 text-xs">{info.token}</code>
       </div>
-      <div>
-        <div className="mb-1 flex items-center justify-between gap-2">
-          <Label>Environment</Label>
-          <Button variant="ghost" onClick={() => copy('env', info.env)}>
-            {copied === 'env' ? 'Copied' : 'Copy'}
-          </Button>
-        </div>
-        <pre className="overflow-x-auto rounded-md bg-[var(--bg)] p-2 text-xs">{info.env}</pre>
-      </div>
       {presets && onPlatformChange && (
         <PlatformPicker
           value={activePlatform}
@@ -598,12 +606,39 @@ function CopyBlocks({
           description={activePreset?.description}
         />
       )}
+      {!inlineToken && (
+        <div>
+          <div className="mb-1 flex items-center justify-between gap-2">
+            <Label>Environment</Label>
+            <div className="flex gap-1">
+              <Button variant="ghost" onClick={() => copy('env', env)}>
+                {copied === 'env' ? 'Copied' : 'Copy'}
+              </Button>
+              <Button variant="ghost" onClick={() => download('vector-collector.env', env)}>
+                Download
+              </Button>
+            </div>
+          </div>
+          <pre className="overflow-x-auto rounded-md bg-[var(--bg)] p-2 text-xs">{env}</pre>
+        </div>
+      )}
+      {inlineToken && (
+        <p className="text-sm text-[var(--text-muted)]">
+          This preset inlines the bearer token in the YAML — no env file or Vector env-interpolation
+          flag required. Treat the downloaded file as secret.
+        </p>
+      )}
       <div>
         <div className="mb-1 flex items-center justify-between gap-2">
           <Label>{yamlLabel}</Label>
-          <Button variant="ghost" onClick={() => copy('yaml', yaml)}>
-            {copied === 'yaml' ? 'Copied' : 'Copy'}
-          </Button>
+          <div className="flex gap-1">
+            <Button variant="ghost" onClick={() => copy('yaml', yaml)}>
+              {copied === 'yaml' ? 'Copied' : 'Copy'}
+            </Button>
+            <Button variant="ghost" onClick={() => download(downloadName, yaml)}>
+              Download
+            </Button>
+          </div>
         </div>
         <pre className="max-h-72 overflow-auto rounded-md bg-[var(--bg)] p-2 text-xs">{yaml}</pre>
       </div>
@@ -911,7 +946,7 @@ function McpPanel() {
         </form>
       ) : (
         <div className="space-y-3">
-          <CopyBlocks tokenLabel="Query token" yamlLabel="MCP client config" info={info} />
+          <CopyBlocks tokenLabel="Query token" yamlLabel="MCP client config" info={info} yamlFilename="mcp-vector-collector.yaml" />
           <div className="flex flex-wrap gap-2">
             <Button
               variant="danger"

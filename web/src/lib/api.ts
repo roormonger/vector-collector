@@ -64,7 +64,7 @@ export const api = {
     }),
 }
 
-export type AgentStatus = 'online' | 'stale' | 'offline' | 'never' | 'unknown'
+export type AgentStatus = 'online' | 'offline'
 
 export type Agent = {
   id: string
@@ -86,6 +86,8 @@ export type VectorPreset = {
   label: string
   description: string
   yaml: string
+  env?: string
+  inline_token?: boolean
 }
 
 export type AgentConnectInfo = {
@@ -94,6 +96,7 @@ export type AgentConnectInfo = {
   env: string
   yaml: string
   platform?: string
+  inline_token?: boolean
   presets?: VectorPreset[]
 }
 

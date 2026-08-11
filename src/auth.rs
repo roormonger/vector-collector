@@ -212,7 +212,7 @@ pub fn create_agent(
             "events_ingested": 0,
             "created_at": now,
             "last_seen_at": serde_json::Value::Null,
-            "status": "never",
+            "status": "offline",
             "has_connect_secret": true,
         }),
         raw,
@@ -375,6 +375,18 @@ pub fn lookup_api_key(db: &Db, raw: &str) -> AppResult<Option<ApiKeyRecord>> {
             query: row.get::<_, i64>(4).map_err(|e| AppError::Internal(e.into()))? != 0,
         },
     }))
+}
+
+/// Heartbeat / healthcheck contact — updates last_seen without counting events.
+pub fn touch_agent_last_seen(db: &Db, api_key_id: &str) -> AppResult<()> {
+    let conn = db.lock();
+    let now = Utc::now().to_rfc3339();
+    conn.execute(
+        "UPDATE agents SET last_seen_at = ?1 WHERE api_key_id = ?2",
+        params![now, api_key_id],
+    )
+    .map_err(|e| AppError::Internal(e.into()))?;
+    Ok(())
 }
 
 pub fn sign_cookie_value(secret: &str, value: &str) -> anyhow::Result<String> {

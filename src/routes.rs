@@ -1,7 +1,7 @@
 use crate::auth::{
     agent_connect_secret, check_admin_login, check_admin_password, create_agent, create_session,
     delete_agent, destroy_session, ensure_mcp_query_key, lookup_api_key, rotate_mcp_query_key,
-    sign_cookie_value, validate_session, verify_cookie_value,
+    sign_cookie_value, touch_agent_last_seen, validate_session, verify_cookie_value,
 };
 use crate::error::{AppError, AppResult};
 use crate::ingest::{normalize_events, IngestBatch};
@@ -98,6 +98,8 @@ pub async fn ingest_health(
     if !key.scopes.ingest {
         return Err(AppError::Forbidden);
     }
+    // Vector sink healthcheck (startup) + optional http_client heartbeat scrape.
+    let _ = touch_agent_last_seen(&state.db, &key.id);
     Ok(Json(IngestHealthResponse {
         ok: true,
         key: key.name,

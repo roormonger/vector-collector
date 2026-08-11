@@ -60,7 +60,7 @@ Generated Vector/MCP snippets in the admin UI are filled from this value. Restar
 
 1. In the admin UI → **Agents** → **Create agent**. Re-enter the admin password, set a name (this becomes the log hostname, e.g. `app-server-1`), and pick a **platform preset**.
 2. Copy the generated Vector yaml and env (URIs come from `PUBLIC_BASE_URL`). You can switch presets after create/reveal — same ingest token, different yaml. Vector **0.57+** requires `VECTOR_DANGEROUSLY_ALLOW_ENV_VAR_INTERPOLATION=true` for `${INGEST_TOKEN}` to expand (included in the wizard env block).
-3. Run Vector on that machine. The collector forces `host` from the agent name on ingest — no Vector `AGENT_NAME` remap needed.
+3. Run Vector on that machine. The collector forces `host` from the agent name on ingest — no Vector `AGENT_NAME` remap needed. Agent **Online/Offline** status uses authenticated contact on `/v1/ingest/health` (startup healthcheck + a `heartbeat` `http_client` source every 30s in the presets) and log ingest. Vector’s own `api.enabled` is not required.
 
 ### Platform presets
 
@@ -68,7 +68,7 @@ Generated Vector/MCP snippets in the admin UI are filled from this value. Restar
 |--------|---------------|--------|
 | **Docker** | `docker_logs` | Needs Docker socket access |
 | **Linux** | `journald` | Remaps `MESSAGE` / unit → searchable fields |
-| **Windows** | `windows_event_log` | Application, System, Security; `render_message` + Channel remap |
+| **Windows** | `windows_event_log` | Application, System, Security; bearer **inlined** in YAML (no `.env`) |
 | **macOS** | `file` | Common `/var/log` and `/Library/Logs` paths (edit as needed) |
 | **Files** | `file` | Generic globs — edit `include` for your apps |
 
