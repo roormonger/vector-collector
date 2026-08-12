@@ -70,7 +70,8 @@ export function HomePage({ onNavigate }: { onNavigate: (p: Page) => void }) {
         <pre>{`docker compose up --build -d
 # open http://localhost:8080 — admin / admin`}</pre>
         <p className="text-sm text-[var(--text-muted)]">
-          One Docker image, one volume, one port. Full setup and env vars are in{' '}
+          One Docker image, one <code>/data</code> volume, one port. Day-to-day knobs live in the
+          admin <strong>Settings</strong> UI — see{' '}
           <button
             type="button"
             className="text-[var(--accent-hover)] underline"

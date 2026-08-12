@@ -192,8 +192,12 @@ function Overview() {
       <h2 className="pt-2 text-lg font-semibold text-[var(--text)]">Typical path</h2>
       <ol className="list-decimal space-y-2 pl-5">
         <li>Install Vector on each machine that produces logs.</li>
-        <li>Install Vector Collector once (Docker) and set its public URL.</li>
-        <li>Create an agent in the admin UI and paste the generated Vector config on that host.</li>
+        <li>Install Vector Collector once (Docker) — data always under <code>/data</code>.</li>
+        <li>
+          In admin <strong>Settings</strong>, set Public URL, retention, and any ingest/embeddings
+          options.
+        </li>
+        <li>Create an agent and paste the generated Vector config on that host.</li>
         <li>Connect an MCP client (or the REST API) and start querying.</li>
       </ol>
       <p>Follow the sidebar top-to-bottom — that’s the same order.</p>
@@ -235,7 +239,7 @@ function InstallVector() {
           rights, or file paths / Full Disk Access on macOS).
         </li>
         <li>
-          Network reachability to the collector’s <code>PUBLIC_BASE_URL</code> (HTTP or HTTPS).
+          Network reachability to the collector Public URL from Settings (HTTP or HTTPS).
         </li>
       </ul>
 
@@ -402,8 +406,9 @@ function ConfigureVector() {
           and pick a <strong>platform preset</strong>.
         </li>
         <li>
-          Copy the Vector YAML and env block. URIs come from <code>PUBLIC_BASE_URL</code>. You can
-          switch presets after create/reveal — same ingest token, different YAML.
+          Copy the Vector YAML and env block. URIs come from the Public URL in{' '}
+          <strong>Settings</strong>. You can switch presets after create/reveal — same ingest token,
+          different YAML.
         </li>
         <li>
           On that machine, install the config (and env if needed) and start Vector. Vector{' '}

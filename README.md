@@ -9,9 +9,9 @@ The Rust binary and Docker image remain named `logdb` for now.
 - **Ingest:** `POST /v1/logs` (Vector HTTP sink, gzip, API keys)
 - **Search:** SQLite + FTS5 (every line) + optional semantic embeddings
 - **MCP:** HTTP at `/mcp` (`logs_facets` → `logs_search` → `logs_context`) for MCP-compatible clients (e.g. [Hermes](https://github.com/NousResearch/hermes-agent))
-- **Admin UI:** React + Tailwind for agents, MCP token, retention
+- **Admin UI:** agents, MCP token, retention, ingest limits, embeddings (Settings)
 - **API docs:** Swagger UI at `/docs`
-- **Deploy:** one Docker image, one volume, one port
+- **Deploy:** one Docker image, one `/data` volume, one port
 
 ## Quick start (Docker)
 
