@@ -14,7 +14,9 @@ function pageFromHash(): Page {
 }
 
 function hashFor(page: Page): string {
-  return page === 'home' ? '#/' : `#/${page}`
+  if (page === 'home') return '#/'
+  if (page === 'docs') return '#/docs/overview'
+  return `#/${page}`
 }
 
 export default function App() {
