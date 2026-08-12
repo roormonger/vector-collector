@@ -1,0 +1,68 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #0f1419;
+  --bg-elevated: #1a222c;
+  --bg-muted: #243040;
+  --border: #2f3d4d;
+  --text: #e8eef4;
+  --text-muted: #9aafc0;
+  --accent: #3d9a78;
+  --accent-hover: #4cb08b;
+  --ring: #3d9a78;
+  font-family: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  color: var(--text);
+  background: var(--bg);
+  line-height: 1.5;
+  font-weight: 400;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background:
+    radial-gradient(1200px 600px at 10% -10%, #1c3340 0%, transparent 55%),
+    radial-gradient(900px 500px at 100% 0%, #243528 0%, transparent 45%),
+    var(--bg);
+}
+
+#root {
+  min-height: 100vh;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+a {
+  color: var(--accent-hover);
+}
+
+a:hover {
+  color: #6bc4a0;
+}
+
+code,
+pre {
+  font-family: ui-monospace, "Cascadia Code", "Segoe UI Mono", Consolas, monospace;
+}
+
+pre {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg);
+  padding: 0.75rem 1rem;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
+code:not(pre code) {
+  border-radius: 0.25rem;
+  background: var(--bg-muted);
+  padding: 0.1rem 0.35rem;
+  font-size: 0.875em;
+}

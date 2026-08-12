@@ -2,6 +2,8 @@
 
 Single-container log collector for [Vector](https://github.com/vectordotdev/vector) agents, with search APIs designed for AI agents (REST + MCP) so you can query **all your machines’ logs from one place** with natural language.
 
+**Docs site:** [roormonger.github.io/vector-collector](https://roormonger.github.io/vector-collector/) (guides + Vector YAML generator).
+
 The Rust binary and Docker image remain named `logdb` for now.
 
 - **Ingest:** `POST /v1/logs` (Vector HTTP sink, gzip, API keys)
