@@ -57,8 +57,8 @@ export const api = {
   stats: () => request<Stats>('/v1/admin/stats'),
   recentEvents: () => request<RecentEvent[]>('/v1/admin/recent-events'),
   settings: () => request<Settings>('/v1/admin/settings'),
-  saveSettings: (body: { retention_days?: number; max_events?: number | null }) =>
-    request<{ ok: boolean }>('/v1/admin/settings', {
+  saveSettings: (body: SettingsUpdate) =>
+    request<{ ok: boolean; restart_required?: string[] }>('/v1/admin/settings', {
       method: 'PUT',
       body: JSON.stringify(body),
     }),
@@ -132,4 +132,27 @@ export type Settings = {
   retention_days: number
   max_events?: number | null
   public_base_url: string
+  write_queue_capacity: number
+  max_body_bytes: number
+  per_key_rps: number
+  embeddings_base_url?: string | null
+  embeddings_model?: string | null
+  embeddings_api_key_set: boolean
+  embedding_dim: number
+  embed_sample_rate: number
+  embeddings_enabled: boolean
+}
+
+export type SettingsUpdate = {
+  retention_days?: number
+  max_events?: number | null
+  public_base_url?: string
+  write_queue_capacity?: number
+  max_body_bytes?: number
+  per_key_rps?: number
+  embeddings_base_url?: string | null
+  embeddings_model?: string | null
+  embeddings_api_key?: string | null
+  embedding_dim?: number
+  embed_sample_rate?: number
 }

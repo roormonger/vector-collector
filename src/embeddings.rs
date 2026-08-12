@@ -1,4 +1,3 @@
-use crate::config::Config;
 use anyhow::{anyhow, Context, Result};
 use serde::Deserialize;
 use serde_json::json;
@@ -14,15 +13,23 @@ pub struct EmbeddingClient {
 }
 
 impl EmbeddingClient {
-    pub fn from_config(config: &Config) -> Option<Self> {
-        let base_url = config.embeddings_base_url.clone()?;
-        let model = config.embeddings_model.clone()?;
+    pub fn from_parts(
+        base_url: String,
+        model: String,
+        api_key: Option<String>,
+        dim: usize,
+    ) -> Option<Self> {
+        let base = base_url.trim();
+        let model = model.trim();
+        if base.is_empty() || model.is_empty() {
+            return None;
+        }
         Some(Self {
             http: reqwest::Client::new(),
-            base_url: base_url.trim_end_matches('/').to_string(),
-            model,
-            api_key: config.embeddings_api_key.clone(),
-            dim: config.embedding_dim,
+            base_url: base.trim_end_matches('/').to_string(),
+            model: model.to_string(),
+            api_key,
+            dim,
         })
     }
 

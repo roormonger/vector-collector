@@ -174,7 +174,7 @@ pub async fn ingest_logs(
     let bytes = maybe_gunzip(&headers, &body)?;
     let payload: Value = serde_json::from_slice(&bytes)
         .map_err(|e| AppError::BadRequest(format!("invalid json: {e}")))?;
-    let events = normalize_events(payload, state.config.embed_sample_rate)?;
+    let events = normalize_events(payload, state.settings.read().embed_sample_rate)?;
 
     let (respond_tx, respond_rx) = oneshot::channel();
     let enqueue = state
@@ -259,7 +259,9 @@ pub async fn query_schema(
     headers: HeaderMap,
 ) -> AppResult<Json<Value>> {
     require_query_key(&state, &headers).await?;
-    Ok(Json(query::schema_document(&state.config)))
+    Ok(Json(query::schema_document(
+        state.settings.read().embeddings_enabled(),
+    )))
 }
 
 #[utoipa::path(
@@ -302,9 +304,10 @@ pub async fn query_search(
     Json(req): Json<SearchRequest>,
 ) -> AppResult<Json<Value>> {
     require_query_key(&state, &headers).await?;
+    let emb_client = state.embeddings.read().clone();
     let emb = if let (Some(q), Some(client)) = (
         req.semantic_query.as_ref().filter(|s| !s.trim().is_empty()),
-        state.embeddings.as_ref(),
+        emb_client.as_ref(),
     ) {
         client
             .embed(&[q.clone()])
@@ -460,8 +463,9 @@ async fn admin_create_agent(
 ) -> AppResult<impl IntoResponse> {
     require_admin_password(&state, &jar, &body.password)?;
     let (agent, token) = create_agent(&state.db, &body.name)?;
+    let public_base_url = state.settings.read().public_base_url.clone();
     let mut bundle = crate::vector_presets::vector_agent_bundle(
-        &state.config.public_base_url,
+        &public_base_url,
         &token,
         body.platform.as_deref(),
     );
@@ -479,8 +483,9 @@ async fn admin_agent_connect_info(
 ) -> AppResult<impl IntoResponse> {
     require_admin_password(&state, &jar, &body.password)?;
     let (_hostname, token) = agent_connect_secret(&state.db, &id)?;
+    let public_base_url = state.settings.read().public_base_url.clone();
     Ok(Json(crate::vector_presets::vector_agent_bundle(
-        &state.config.public_base_url,
+        &public_base_url,
         &token,
         body.platform.as_deref(),
     )))
@@ -527,7 +532,8 @@ async fn admin_mcp_connect_info(
 ) -> AppResult<impl IntoResponse> {
     require_admin_password(&state, &jar, &body.password)?;
     let (_id, token) = ensure_mcp_query_key(&state.db)?;
-    Ok(Json(mcp_bundle(&state.config.public_base_url, &token)))
+    let public_base_url = state.settings.read().public_base_url.clone();
+    Ok(Json(mcp_bundle(&public_base_url, &token)))
 }
 
 async fn admin_mcp_rotate(
@@ -537,7 +543,8 @@ async fn admin_mcp_rotate(
 ) -> AppResult<impl IntoResponse> {
     require_admin_password(&state, &jar, &body.password)?;
     let (_id, token) = rotate_mcp_query_key(&state.db)?;
-    Ok(Json(mcp_bundle(&state.config.public_base_url, &token)))
+    let public_base_url = state.settings.read().public_base_url.clone();
+    Ok(Json(mcp_bundle(&public_base_url, &token)))
 }
 
 async fn admin_stats(
@@ -562,7 +569,7 @@ async fn admin_stats(
         obj.insert("queue_depth".into(), json!(state.ingest.depth_approx()));
         obj.insert(
             "embeddings_enabled".into(),
-            json!(state.config.embeddings_enabled()),
+            json!(state.settings.read().embeddings_enabled()),
         );
     }
     Ok(Json(stats))
@@ -580,6 +587,16 @@ async fn admin_recent_events(
 struct SettingsBody {
     retention_days: Option<u32>,
     max_events: Option<Option<u64>>,
+    public_base_url: Option<String>,
+    write_queue_capacity: Option<usize>,
+    max_body_bytes: Option<usize>,
+    per_key_rps: Option<f64>,
+    embeddings_base_url: Option<Option<String>>,
+    embeddings_model: Option<Option<String>>,
+    /// Empty string leaves existing key; null clears; non-empty sets.
+    embeddings_api_key: Option<Option<String>>,
+    embedding_dim: Option<usize>,
+    embed_sample_rate: Option<f64>,
 }
 
 async fn admin_get_settings(
@@ -587,19 +604,20 @@ async fn admin_get_settings(
     jar: CookieJar,
 ) -> AppResult<impl IntoResponse> {
     require_admin(&state, &jar)?;
-    let conn = state.db.lock();
-    let retention_days = crate::db::setting_get(&conn, "retention_days")
-        .map_err(AppError::Internal)?
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(state.config.retention_days);
-    let max_events = crate::db::setting_get(&conn, "max_events")
-        .map_err(AppError::Internal)?
-        .and_then(|s| s.parse().ok())
-        .or(state.config.max_events);
+    let s = state.settings.read().clone();
     Ok(Json(json!({
-        "retention_days": retention_days,
-        "max_events": max_events,
-        "public_base_url": state.config.public_base_url,
+        "retention_days": s.retention_days,
+        "max_events": s.max_events,
+        "public_base_url": s.public_base_url,
+        "write_queue_capacity": s.write_queue_capacity,
+        "max_body_bytes": s.max_body_bytes,
+        "per_key_rps": s.per_key_rps,
+        "embeddings_base_url": s.embeddings_base_url,
+        "embeddings_model": s.embeddings_model,
+        "embeddings_api_key_set": s.embeddings_api_key.as_ref().map(|k| !k.is_empty()).unwrap_or(false),
+        "embedding_dim": s.embedding_dim,
+        "embed_sample_rate": s.embed_sample_rate,
+        "embeddings_enabled": s.embeddings_enabled(),
     })))
 }
 
@@ -609,20 +627,95 @@ async fn admin_put_settings(
     Json(body): Json<SettingsBody>,
 ) -> AppResult<impl IntoResponse> {
     require_admin(&state, &jar)?;
-    let conn = state.db.lock();
+
+    let (prev_queue, prev_body) = {
+        let s = state.settings.read();
+        (s.write_queue_capacity, s.max_body_bytes)
+    };
+
+    let mut next = state.settings.read().clone();
     if let Some(days) = body.retention_days {
-        crate::db::setting_set(&conn, "retention_days", &days.to_string())
-            .map_err(AppError::Internal)?;
+        if days == 0 {
+            return Err(AppError::BadRequest("retention_days must be >= 1".into()));
+        }
+        next.retention_days = days;
     }
     if let Some(max) = body.max_events {
-        match max {
-            Some(n) => crate::db::setting_set(&conn, "max_events", &n.to_string())
-                .map_err(AppError::Internal)?,
-            None => {
-                let _ = conn.execute("DELETE FROM app_settings WHERE key = 'max_events'", []);
-            }
+        next.max_events = max.filter(|&n| n > 0);
+    }
+    if let Some(url) = body.public_base_url {
+        let url = url.trim().to_string();
+        if url.is_empty() {
+            return Err(AppError::BadRequest("public_base_url required".into()));
+        }
+        next.public_base_url = url.trim_end_matches('/').to_string();
+    }
+    if let Some(cap) = body.write_queue_capacity {
+        if cap == 0 {
+            return Err(AppError::BadRequest("write_queue_capacity must be >= 1".into()));
+        }
+        next.write_queue_capacity = cap;
+    }
+    if let Some(bytes) = body.max_body_bytes {
+        if bytes < 1024 {
+            return Err(AppError::BadRequest("max_body_bytes must be >= 1024".into()));
+        }
+        next.max_body_bytes = bytes;
+    }
+    if let Some(rps) = body.per_key_rps {
+        if rps < 1.0 {
+            return Err(AppError::BadRequest("per_key_rps must be >= 1".into()));
+        }
+        next.per_key_rps = rps;
+    }
+    if let Some(v) = body.embeddings_base_url {
+        next.embeddings_base_url = v.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    }
+    if let Some(v) = body.embeddings_model {
+        next.embeddings_model = v.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    }
+    if let Some(v) = body.embeddings_api_key {
+        match v {
+            None => next.embeddings_api_key = None,
+            Some(s) if s.is_empty() => {} // leave unchanged
+            Some(s) => next.embeddings_api_key = Some(s),
         }
     }
-    Ok(Json(json!({"ok": true})))
+    if let Some(dim) = body.embedding_dim {
+        if dim == 0 {
+            return Err(AppError::BadRequest("embedding_dim must be >= 1".into()));
+        }
+        next.embedding_dim = dim;
+    }
+    if let Some(rate) = body.embed_sample_rate {
+        if !(0.0..=1.0).contains(&rate) {
+            return Err(AppError::BadRequest(
+                "embed_sample_rate must be between 0 and 1".into(),
+            ));
+        }
+        next.embed_sample_rate = rate;
+    }
+
+    {
+        let conn = state.db.lock();
+        crate::settings::persist_settings(&conn, &next).map_err(AppError::Internal)?;
+    }
+
+    state.rate_limiter.set_rps(next.per_key_rps);
+    *state.embeddings.write() = next.embedding_client();
+    *state.settings.write() = next.clone();
+
+    let mut restart_required = Vec::new();
+    if next.write_queue_capacity != prev_queue {
+        restart_required.push("write_queue_capacity");
+    }
+    if next.max_body_bytes != prev_body {
+        restart_required.push("max_body_bytes");
+    }
+
+    Ok(Json(json!({
+        "ok": true,
+        "restart_required": restart_required,
+    })))
 }
 

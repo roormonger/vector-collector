@@ -23,8 +23,7 @@ RUN apt-get update \
 WORKDIR /app
 COPY --from=builder /app/target/release/logdb /usr/local/bin/logdb
 COPY --from=web /web/dist /app/web/dist
-ENV DATA_DIR=/data \
-    WEB_DIR=/app/web/dist \
+ENV WEB_DIR=/app/web/dist \
     BIND=0.0.0.0:8080 \
     PUBLIC_BASE_URL=http://localhost:8080
 VOLUME ["/data"]

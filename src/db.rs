@@ -93,3 +93,11 @@ pub fn setting_set(conn: &Connection, key: &str, value: &str) -> Result<()> {
     )?;
     Ok(())
 }
+
+pub fn setting_set_if_absent(conn: &Connection, key: &str, value: &str) -> Result<()> {
+    conn.execute(
+        "INSERT OR IGNORE INTO app_settings(key, value) VALUES(?1, ?2)",
+        params![key, value],
+    )?;
+    Ok(())
+}

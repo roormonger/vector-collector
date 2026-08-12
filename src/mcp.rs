@@ -185,7 +185,7 @@ fn tool(name: &str, description: &str, input_schema: Value) -> Value {
 
 async fn call_tool(state: &AppState, name: &str, args: Value) -> AppResult<Value> {
     let payload = match name {
-        "logs_schema" => query::schema_document(&state.config),
+        "logs_schema" => query::schema_document(state.settings.read().embeddings_enabled()),
         "logs_facets" => {
             let filters: Filters =
                 serde_json::from_value(args.get("filters").cloned().unwrap_or(json!({})))
@@ -195,9 +195,10 @@ async fn call_tool(state: &AppState, name: &str, args: Value) -> AppResult<Value
         "logs_search" => {
             let req: SearchRequest =
                 serde_json::from_value(args).map_err(|e| AppError::BadRequest(e.to_string()))?;
+            let emb_client = state.embeddings.read().clone();
             let emb = if let (Some(q), Some(client)) = (
                 req.semantic_query.as_ref().filter(|s| !s.trim().is_empty()),
-                state.embeddings.as_ref(),
+                emb_client.as_ref(),
             ) {
                 client
                     .embed(&[q.clone()])

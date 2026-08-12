@@ -1,4 +1,3 @@
-use crate::config::Config;
 use crate::db::Db;
 use crate::error::{AppError, AppResult};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -74,7 +73,7 @@ fn decode_cursor(s: &str) -> AppResult<Cursor> {
     })
 }
 
-pub fn schema_document(config: &Config) -> Value {
+pub fn schema_document(embeddings_enabled: bool) -> Value {
     json!({
         "name": "vector-collector",
         "description": "Search logs ingested into Vector Collector across all machines. Prefer facets → search → context. Timestamps are UTC RFC3339.",
@@ -99,7 +98,7 @@ pub fn schema_document(config: &Config) -> Value {
             "request_id": "string",
             "label_equals": {"key": "value"}
         },
-        "semantic_search_enabled": config.embeddings_enabled(),
+        "semantic_search_enabled": embeddings_enabled,
         "defaults": {
             "limit": 25,
             "message_truncate_chars": 500

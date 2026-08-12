@@ -282,7 +282,6 @@ docker run -d -p 8080:8080 \\
       <h2 className="pt-2 text-lg font-semibold text-[var(--text)]">Local development</h2>
       <p>Requirements: Rust (MSVC on Windows), Node 20+.</p>
       <pre>{`# terminal 1 — API
-set DATA_DIR=./data
 set WEB_DIR=web/dist
 cargo run
 
@@ -291,8 +290,9 @@ cd web
 npm install
 npm run dev`}</pre>
       <p>
-        Vite proxies <code>/v1</code> to <code>http://127.0.0.1:8080</code>. SQLite lives under{' '}
-        <code>./data</code> (gitignored).
+        Vite proxies <code>/v1</code> to <code>http://127.0.0.1:8080</code>. Data always lives at{' '}
+        <code>/data</code> (SQLite <code>/data/logdb.sqlite</code>) — on Windows that is drive-root{' '}
+        <code>\data</code>. Prefer Docker so the volume matches production.
       </p>
       <p>
         Note: the Rust binary and Docker image are still named <code>logdb</code> for now.
@@ -305,17 +305,19 @@ function ConfigureCollector() {
   return (
     <Section
       title="Configure the collector"
-      lead="Set the public URL and harden admin access before adding remote agents."
+      lead="Use the admin Settings UI for day-to-day knobs; keep secrets and listen address in env."
     >
       <h2 className="text-lg font-semibold text-[var(--text)]">Public URL (required for remote agents)</h2>
       <p>
-        Set <code>PUBLIC_BASE_URL</code> to the URL <strong>Vector agents and MCP clients use</strong>{' '}
-        to reach this collector — e.g. <code>http://192.168.1.10:8080</code> on a LAN, or{' '}
-        <code>https://logs.example.com</code> behind a reverse proxy.
+        In the admin UI → <strong>Settings</strong>, set <strong>Public URL</strong> to the URL{' '}
+        <strong>Vector agents and MCP clients use</strong> — e.g.{' '}
+        <code>http://192.168.1.10:8080</code> on a LAN, or <code>https://logs.example.com</code>{' '}
+        behind a reverse proxy.
       </p>
       <p>
         Do <strong>not</strong> leave it as <code>http://localhost:8080</code> if Vector runs on other
-        machines. Generated Vector/MCP snippets use this value. Restart after changing it.
+        machines. Generated Vector/MCP snippets use this value immediately after Save.{' '}
+        <code>PUBLIC_BASE_URL</code> in <code>.env</code> is only a first-boot default.
       </p>
 
       <h2 className="pt-2 text-lg font-semibold text-[var(--text)]">Security basics</h2>
@@ -331,29 +333,29 @@ function ConfigureCollector() {
         </li>
       </ul>
 
-      <h2 className="pt-2 text-lg font-semibold text-[var(--text)]">Retention & capacity</h2>
+      <h2 className="pt-2 text-lg font-semibold text-[var(--text)]">Settings UI</h2>
       <ul className="list-disc space-y-2 pl-5">
-        <li>
-          <code>RETENTION_DAYS</code> (default <code>14</code>) — delete events older than N days.
-        </li>
-        <li>
-          <code>MAX_EVENTS</code> — optional hard cap; oldest rows are trimmed.
-        </li>
-        <li>
-          <code>PER_KEY_RPS</code> / <code>WRITE_QUEUE_CAPACITY</code> — backpressure when agents flood
-          ingest (<code>429</code>; Vector’s disk buffer absorbs spikes).
-        </li>
+        <li>Retention days and optional max events</li>
+        <li>Ingest queue capacity, max body size (restart required), per-key rate limit (live)</li>
+        <li>Semantic search: embeddings base URL, model, API key, dimension, sample rate</li>
       </ul>
 
-      <h2 className="pt-2 text-lg font-semibold text-[var(--text)]">Optional semantic search</h2>
+      <h2 className="pt-2 text-lg font-semibold text-[var(--text)]">Data paths</h2>
       <p>
-        Set both <code>EMBEDDINGS_BASE_URL</code> and <code>EMBEDDINGS_MODEL</code> (OpenAI-compatible
-        API) to enable embeddings. Keyword FTS works without them.
+        Fixed: volume <code>/data</code>, database <code>/data/logdb.sqlite</code>. Not configurable.
+      </p>
+
+      <h2 className="pt-2 text-lg font-semibold text-[var(--text)]">Listen address (`BIND`)</h2>
+      <p>
+        <code>0.0.0.0:8080</code> (default) listens on all interfaces — correct for Docker published
+        ports. <code>127.0.0.1:8080</code> is this machine only (bare-metal local access). Not a GUI
+        setting.
       </p>
 
       <h2 className="pt-2 text-lg font-semibold text-[var(--text)]">Environment reference</h2>
       <p>
-        Full template: <code>.env.example</code> in the repo.
+        Full template: <code>.env.example</code> in the repo. Operational knobs belong in Settings;
+        env values for those are first-boot defaults only.
       </p>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[36rem] border-collapse text-left text-sm">
@@ -508,8 +510,8 @@ function McpDocs() {
 
       <p>
         Tools are ordered for agents: <code>logs_facets</code> → <code>logs_search</code> →{' '}
-        <code>logs_context</code>. Keyword search covers all logs; semantic search is optional (set{' '}
-        <code>EMBEDDINGS_*</code> on the collector).
+        <code>logs_context</code>.         Keyword search covers all logs; semantic search is optional (configure embeddings in admin
+        Settings).
       </p>
       <p>
         Example: “what errors happened on app-server-1 in the last hour?”
@@ -580,25 +582,13 @@ function Architecture() {
 }
 
 const ENV_ROWS: [string, string, string][] = [
-  ['BIND', '0.0.0.0:8080', 'Listen address'],
-  ['DATA_DIR', '/data', 'Data directory (created on start)'],
-  ['DATABASE_PATH', '$DATA_DIR/logdb.sqlite', 'SQLite file path'],
-  ['WEB_DIR', 'unset', 'Static admin UI directory; if unset or missing, API-only'],
+  ['BIND', '0.0.0.0:8080', 'Listen address (all interfaces vs 127.0.0.1 loopback)'],
+  ['WEB_DIR', 'unset / image default', 'Static admin UI directory; if unset or missing, API-only'],
   ['ADMIN_USERNAME', 'admin', 'Admin UI login'],
   ['ADMIN_PASSWORD', 'admin', 'Admin UI password'],
   ['SESSION_SECRET', 'dev-session-secret-change-me', 'Cookie signing — change in production'],
-  ['PUBLIC_BASE_URL', 'http://localhost:8080', 'Base URL in Vector/MCP snippets'],
-  ['RETENTION_DAYS', '14', 'Auto-delete events older than N days'],
-  ['MAX_EVENTS', 'unset', 'Optional max row cap (oldest trimmed)'],
-  ['WRITE_QUEUE_CAPACITY', '64', 'In-memory ingest queue size'],
-  ['MAX_BODY_BYTES', '10485760 (10 MiB)', 'Max ingest request body'],
-  ['PER_KEY_RPS', '50', 'Per-API-key rate limit'],
+  ['PUBLIC_BASE_URL', 'http://localhost:8080', 'First-boot default for Public URL (Settings)'],
   ['BOOTSTRAP_INGEST_KEY', 'unset', 'Seed ingest API key on boot'],
   ['BOOTSTRAP_QUERY_KEY', 'unset', 'Seed query API key on boot'],
-  ['EMBEDDINGS_BASE_URL', 'unset', 'OpenAI-compatible embeddings API base'],
-  ['EMBEDDINGS_MODEL', 'unset', 'Embedding model (URL + model both required for semantic search)'],
-  ['EMBEDDINGS_API_KEY', 'unset', 'Optional auth for embeddings API'],
-  ['EMBEDDING_DIM', '1536', 'Expected embedding vector size'],
-  ['EMBED_SAMPLE_RATE', '0.02', 'Fraction of events queued for embedding'],
   ['RUST_LOG', 'info', 'Log filter (tracing-subscriber)'],
 ]

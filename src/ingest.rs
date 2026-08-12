@@ -44,9 +44,8 @@ pub struct IngestQueue {
 }
 
 impl IngestQueue {
-    pub fn new(capacity: usize, db: Db, embed_sample_rate: f64) -> (Self, mpsc::Receiver<IngestBatch>) {
+    pub fn new(capacity: usize) -> (Self, mpsc::Receiver<IngestBatch>) {
         let (tx, rx) = mpsc::channel(capacity);
-        let _ = (db, embed_sample_rate); // writer started separately
         (Self { tx }, rx)
     }
 

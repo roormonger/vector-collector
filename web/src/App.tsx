@@ -6,6 +6,7 @@ import {
   type McpConnectInfo,
   type RecentEvent,
   type Settings,
+  type SettingsUpdate,
   type Stats,
 } from './lib/api'
 import { Badge, Button, Card, Input, Label } from './components/ui'
@@ -987,15 +988,35 @@ function McpPanel() {
 
 function SettingsPanel() {
   const [settings, setSettings] = useState<Settings | null>(null)
+  const [publicUrl, setPublicUrl] = useState('')
   const [days, setDays] = useState('14')
   const [maxEvents, setMaxEvents] = useState('')
+  const [queueCap, setQueueCap] = useState('64')
+  const [maxBody, setMaxBody] = useState(String(10 * 1024 * 1024))
+  const [perKeyRps, setPerKeyRps] = useState('50')
+  const [embUrl, setEmbUrl] = useState('')
+  const [embModel, setEmbModel] = useState('')
+  const [embKey, setEmbKey] = useState('')
+  const [embDim, setEmbDim] = useState('1536')
+  const [embSample, setEmbSample] = useState('0.02')
   const [msg, setMsg] = useState<string | null>(null)
+  const [restartNote, setRestartNote] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     api.settings().then((s) => {
       setSettings(s)
+      setPublicUrl(s.public_base_url)
       setDays(String(s.retention_days))
       setMaxEvents(s.max_events != null ? String(s.max_events) : '')
+      setQueueCap(String(s.write_queue_capacity))
+      setMaxBody(String(s.max_body_bytes))
+      setPerKeyRps(String(s.per_key_rps))
+      setEmbUrl(s.embeddings_base_url ?? '')
+      setEmbModel(s.embeddings_model ?? '')
+      setEmbKey('')
+      setEmbDim(String(s.embedding_dim))
+      setEmbSample(String(s.embed_sample_rate))
     })
   }, [])
 
@@ -1003,18 +1024,24 @@ function SettingsPanel() {
 
   return (
     <div className="space-y-4">
+      {restartNote && (
+        <p className="rounded-md border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-2 text-sm text-[var(--text-muted)]">
+          {restartNote}
+        </p>
+      )}
+
       <Card className="space-y-3">
         <h2 className="text-lg font-medium">Public URL</h2>
         <p className="text-sm text-[var(--text-muted)]">
-          Used in Vector and MCP snippets. Set via the <code className="text-xs">PUBLIC_BASE_URL</code> env
-          var (restart Vector Collector to change). Use your LAN IP or reverse-proxy origin so remote agents
-          can reach this host.
+          Used in Vector and MCP snippets. Use your LAN IP or reverse-proxy origin so remote agents can
+          reach this host — not localhost if agents are on other machines.
         </p>
         <div>
           <Label>Public URL</Label>
-          <Input value={settings.public_base_url} readOnly />
+          <Input value={publicUrl} onChange={(e) => setPublicUrl(e.target.value)} />
         </div>
       </Card>
+
       <Card className="space-y-3">
         <h2 className="text-lg font-medium">Retention</h2>
         <p className="text-sm text-[var(--text-muted)]">
@@ -1030,19 +1057,120 @@ function SettingsPanel() {
             <Input value={maxEvents} onChange={(e) => setMaxEvents(e.target.value)} placeholder="e.g. 5000000" />
           </div>
         </div>
-        {msg && <p className="text-sm text-[var(--accent)]">{msg}</p>}
-        <Button
-          onClick={async () => {
-            await api.saveSettings({
+      </Card>
+
+      <Card className="space-y-3">
+        <h2 className="text-lg font-medium">Ingest limits</h2>
+        <p className="text-sm text-[var(--text-muted)]">
+          Queue capacity and max body size apply after a process restart. Per-key rate limit applies
+          immediately.
+        </p>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div>
+            <Label>Queue capacity</Label>
+            <Input value={queueCap} onChange={(e) => setQueueCap(e.target.value)} />
+          </div>
+          <div>
+            <Label>Max body bytes</Label>
+            <Input value={maxBody} onChange={(e) => setMaxBody(e.target.value)} />
+          </div>
+          <div>
+            <Label>Per-key req/s</Label>
+            <Input value={perKeyRps} onChange={(e) => setPerKeyRps(e.target.value)} />
+          </div>
+        </div>
+      </Card>
+
+      <Card className="space-y-3">
+        <h2 className="text-lg font-medium">Semantic search</h2>
+        <p className="text-sm text-[var(--text-muted)]">
+          Optional OpenAI-compatible embeddings. Set base URL and model to enable. Changing model or
+          dimension may invalidate existing embeddings. Leave API key blank to keep the current secret.
+        </p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <Label>Embeddings base URL</Label>
+            <Input
+              value={embUrl}
+              onChange={(e) => setEmbUrl(e.target.value)}
+              placeholder="https://api.openai.com/v1"
+            />
+          </div>
+          <div>
+            <Label>Model</Label>
+            <Input
+              value={embModel}
+              onChange={(e) => setEmbModel(e.target.value)}
+              placeholder="text-embedding-3-small"
+            />
+          </div>
+          <div>
+            <Label>API key {settings.embeddings_api_key_set ? '(set)' : '(not set)'}</Label>
+            <Input
+              type="password"
+              value={embKey}
+              onChange={(e) => setEmbKey(e.target.value)}
+              placeholder={settings.embeddings_api_key_set ? '••••••••' : 'optional'}
+              autoComplete="new-password"
+            />
+          </div>
+          <div>
+            <Label>Embedding dim</Label>
+            <Input value={embDim} onChange={(e) => setEmbDim(e.target.value)} />
+          </div>
+          <div>
+            <Label>Sample rate (0–1)</Label>
+            <Input value={embSample} onChange={(e) => setEmbSample(e.target.value)} />
+          </div>
+        </div>
+        <p className="text-xs text-[var(--text-muted)]">
+          Status: {settings.embeddings_enabled ? 'enabled' : 'disabled'}
+        </p>
+      </Card>
+
+      {msg && <p className="text-sm text-[var(--accent)]">{msg}</p>}
+      <Button
+        disabled={saving}
+        onClick={async () => {
+          setSaving(true)
+          setMsg(null)
+          try {
+            const body: SettingsUpdate = {
               retention_days: Number(days),
               max_events: maxEvents.trim() === '' ? null : Number(maxEvents),
-            })
+              public_base_url: publicUrl.trim(),
+              write_queue_capacity: Number(queueCap),
+              max_body_bytes: Number(maxBody),
+              per_key_rps: Number(perKeyRps),
+              embeddings_base_url: embUrl.trim() === '' ? null : embUrl.trim(),
+              embeddings_model: embModel.trim() === '' ? null : embModel.trim(),
+              embedding_dim: Number(embDim),
+              embed_sample_rate: Number(embSample),
+            }
+            if (embKey.trim() !== '') {
+              body.embeddings_api_key = embKey.trim()
+            }
+            const res = await api.saveSettings(body)
+            const refreshed = await api.settings()
+            setSettings(refreshed)
+            setEmbKey('')
             setMsg('Saved')
-          }}
-        >
-          Save
-        </Button>
-      </Card>
+            if (res.restart_required && res.restart_required.length > 0) {
+              setRestartNote(
+                `Restart Vector Collector for these to take effect: ${res.restart_required.join(', ')}.`,
+              )
+            } else {
+              setRestartNote(null)
+            }
+          } catch (e) {
+            setMsg(e instanceof Error ? e.message : 'Save failed')
+          } finally {
+            setSaving(false)
+          }
+        }}
+      >
+        {saving ? 'Saving…' : 'Save settings'}
+      </Button>
     </div>
   )
 }
