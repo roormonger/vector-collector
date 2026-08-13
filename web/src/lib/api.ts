@@ -62,6 +62,16 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(body),
     }),
+  testEmbeddings: (body?: {
+    embeddings_base_url?: string
+    embeddings_model?: string
+    embeddings_api_key?: string
+    embedding_dim?: number
+  }) =>
+    request<EmbeddingsTestResult>('/v1/admin/embeddings/test', {
+      method: 'POST',
+      body: JSON.stringify(body ?? {}),
+    }),
 }
 
 export type AgentStatus = 'online' | 'offline'
@@ -155,4 +165,14 @@ export type SettingsUpdate = {
   embeddings_api_key?: string | null
   embedding_dim?: number
   embed_sample_rate?: number
+}
+
+export type EmbeddingsTestResult = {
+  ok: boolean
+  model: string
+  base_url: string
+  dimensions: number
+  configured_dim: number
+  dim_match: boolean
+  latency_ms: number
 }

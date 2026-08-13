@@ -54,6 +54,7 @@ pub fn app_router(state: AppState, web_dir: Option<std::path::PathBuf>) -> Route
         .route("/v1/admin/stats", get(admin_stats))
         .route("/v1/admin/recent-events", get(admin_recent_events))
         .route("/v1/admin/settings", get(admin_get_settings).put(admin_put_settings))
+        .route("/v1/admin/embeddings/test", post(admin_embeddings_test))
         .with_state(state);
 
     if let Some(dir) = web_dir {
@@ -581,6 +582,91 @@ async fn admin_recent_events(
 ) -> AppResult<impl IntoResponse> {
     require_admin(&state, &jar)?;
     Ok(Json(query::recent_events(&state.db, 80)?))
+}
+
+#[derive(Deserialize, Default)]
+struct EmbeddingsTestBody {
+    /// Optional overrides — test form values before saving. Blank API key keeps the stored secret.
+    embeddings_base_url: Option<String>,
+    embeddings_model: Option<String>,
+    embeddings_api_key: Option<String>,
+    embedding_dim: Option<usize>,
+}
+
+async fn admin_embeddings_test(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Json(body): Json<EmbeddingsTestBody>,
+) -> AppResult<impl IntoResponse> {
+    require_admin(&state, &jar)?;
+    let stored = state.settings.read().clone();
+
+    let base = body
+        .embeddings_base_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .or(stored.embeddings_base_url.clone());
+    let model = body
+        .embeddings_model
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .or(stored.embeddings_model.clone());
+    let api_key = match body.embeddings_api_key.as_deref().map(str::trim) {
+        Some("") | None => stored.embeddings_api_key.clone(),
+        Some(k) => Some(k.to_string()),
+    };
+    let dim = body
+        .embedding_dim
+        .filter(|&d| d >= 1)
+        .unwrap_or(stored.embedding_dim);
+
+    let Some(base) = base else {
+        return Err(AppError::BadRequest(
+            "embeddings_base_url is required (save or fill the form)".into(),
+        ));
+    };
+    let Some(model) = model else {
+        return Err(AppError::BadRequest(
+            "embeddings_model is required (save or fill the form)".into(),
+        ));
+    };
+    let Some(client) = crate::embeddings::EmbeddingClient::from_parts(
+        base.clone(),
+        model.clone(),
+        api_key,
+        dim,
+    ) else {
+        return Err(AppError::BadRequest("invalid embeddings configuration".into()));
+    };
+
+    let started = std::time::Instant::now();
+    let vectors = client
+        .embed(&[
+            "vector collector embeddings probe".to_string(),
+        ])
+        .await
+        .map_err(|e| AppError::BadRequest(format!("embeddings request failed: {e}")))?;
+    let elapsed_ms = started.elapsed().as_millis() as u64;
+    let dimensions = vectors.first().map(|v| v.len()).unwrap_or(0);
+    if dimensions == 0 {
+        return Err(AppError::BadRequest(
+            "embeddings API returned an empty vector".into(),
+        ));
+    }
+
+    Ok(Json(json!({
+        "ok": true,
+        "model": model,
+        "base_url": base,
+        "dimensions": dimensions,
+        "configured_dim": dim,
+        "dim_match": dimensions == dim,
+        "latency_ms": elapsed_ms,
+    })))
 }
 
 #[derive(Deserialize)]

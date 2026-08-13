@@ -11,7 +11,7 @@ import {
 } from './lib/api'
 import { Badge, Button, Card, Input, Label } from './components/ui'
 
-type Tab = 'overview' | 'agents' | 'mcp' | 'settings'
+type Tab = 'overview' | 'hosts' | 'mcp' | 'settings'
 
 export default function App() {
   const [user, setUser] = useState<string | null>(null)
@@ -46,7 +46,7 @@ export default function App() {
               {(
                 [
                   ['overview', 'Overview'],
-                  ['agents', 'Agents'],
+                  ['hosts', 'Hosts'],
                   ['mcp', 'MCP'],
                   ['settings', 'Settings'],
                 ] as const
@@ -75,7 +75,7 @@ export default function App() {
 
       <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
         {tab === 'overview' && <Overview />}
-        {tab === 'agents' && <AgentsPanel />}
+        {tab === 'hosts' && <HostsPanel />}
         {tab === 'mcp' && <McpPanel />}
         {tab === 'settings' && <SettingsPanel />}
       </main>
@@ -99,7 +99,7 @@ function Login({ onSuccess }: { onSuccess: (user: string) => void }) {
         <p className="text-sm uppercase tracking-[0.2em] text-[var(--text-muted)]">Vector Collector</p>
         <h1 className="mt-2 text-3xl font-semibold">Sign in</h1>
         <p className="mt-2 text-[var(--text-muted)]">
-          Admin console for Vector agents and MCP access.
+          Admin console for Vector hosts, ingest keys, and MCP access.
         </p>
         <Card className="mt-6">
           <form
@@ -198,7 +198,7 @@ function Overview() {
         {stats ? (
           <>
             <Stat title="Events stored" value={stats.events} />
-            <Stat title="Agents" value={stats.agents} />
+            <Stat title="Hosts" value={stats.agents} />
             <Stat title="Queue depth" value={stats.queue_depth ?? 0} />
             <Stat title="Ingest accepted" value={stats.ingest_accepted ?? 0} />
             <Stat title="Ingest 429s" value={stats.ingest_429 ?? 0} />
@@ -335,22 +335,22 @@ function PublicUrlHint({ url }: { url: string | null }) {
   )
 }
 
-function AgentsPanel() {
-  const [agents, setAgents] = useState<Agent[]>([])
+function HostsPanel() {
+  const [hosts, setHosts] = useState<Agent[]>([])
   const [error, setError] = useState<string | null>(null)
   const [wizardOpen, setWizardOpen] = useState(false)
-  const [viewAgent, setViewAgent] = useState<Agent | null>(null)
-  const [removeAgent, setRemoveAgent] = useState<Agent | null>(null)
+  const [viewHost, setViewHost] = useState<Agent | null>(null)
+  const [removeHost, setRemoveHost] = useState<Agent | null>(null)
   const publicBaseUrl = usePublicBaseUrl()
 
   const reload = () =>
     api
       .agents()
       .then((rows) => {
-        setAgents(rows)
+        setHosts(rows)
         setError(null)
       })
-      .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load agents'))
+      .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load hosts'))
 
   useEffect(() => {
     reload()
@@ -363,13 +363,15 @@ function AgentsPanel() {
       <Card>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h2 className="text-lg font-medium">Agents</h2>
+            <h2 className="text-lg font-medium">Hosts</h2>
             <p className="text-sm text-[var(--text-muted)]">
-              Create an agent per machine. The name becomes the log hostname. Each agent gets its own ingest
-              key and platform Vector presets (Docker, Linux, Windows, macOS, files). Status is Online when
-              Vector heartbeats or sends logs (within ~2 minutes). Removing an agent revokes its key; stored
-              logs stay until retention trims them. On Vector 0.57+, keep{' '}
-              <code className="text-xs">VECTOR_DANGEROUSLY_ALLOW_ENV_VAR_INTERPOLATION=true</code>.
+              Register a host per machine. That creates a dedicated ingest API key and ready-to-run Vector
+              config (Docker, Linux, Windows, macOS, or files). The name is stored as the log{' '}
+              <code className="text-xs">host</code> field. Online means Vector on that machine has
+              heartbeated or sent logs within ~2 minutes. Removing a host revokes its key; stored logs stay
+              until retention trims them. On Vector 0.57+, keep{' '}
+              <code className="text-xs">VECTOR_DANGEROUSLY_ALLOW_ENV_VAR_INTERPOLATION=true</code> when using
+              env-based presets.
             </p>
             <PublicUrlHint url={publicBaseUrl} />
           </div>
@@ -377,12 +379,12 @@ function AgentsPanel() {
             <Button variant="ghost" onClick={reload}>
               Refresh
             </Button>
-            <Button onClick={() => setWizardOpen(true)}>Create agent</Button>
+            <Button onClick={() => setWizardOpen(true)}>Add host</Button>
           </div>
         </div>
         {error && <p className="mb-3 text-sm text-[var(--danger)]">{error}</p>}
         <div className="space-y-3">
-          {agents.map((a) => (
+          {hosts.map((a) => (
             <div
               key={a.id}
               className="rounded-lg border border-[var(--border)] bg-[var(--bg)]/50 p-3 last:mb-0"
@@ -391,7 +393,7 @@ function AgentsPanel() {
                 <div>
                   <p className="font-medium">{a.host}</p>
                   <p className="text-sm text-[var(--text-muted)]">
-                    {a.has_connect_secret ? 'Wizard agent' : a.name}
+                    {a.has_connect_secret ? 'Dedicated ingest key' : a.name}
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -399,18 +401,18 @@ function AgentsPanel() {
                     {a.status}
                   </span>
                   {a.has_connect_secret && (
-                    <Button variant="ghost" onClick={() => setViewAgent(a)}>
-                      View connect info
+                    <Button variant="ghost" onClick={() => setViewHost(a)}>
+                      View Vector config
                     </Button>
                   )}
-                  <Button variant="danger" onClick={() => setRemoveAgent(a)}>
+                  <Button variant="danger" onClick={() => setRemoveHost(a)}>
                     Remove
                   </Button>
                 </div>
               </div>
               <p className="mt-2 text-sm text-[var(--text-muted)]">
                 last seen {formatTime(a.last_seen_at)} · {a.events_ingested.toLocaleString()} events
-                {a.key_prefix ? ` · ${a.key_prefix}…` : ''}
+                {a.key_prefix ? ` · key ${a.key_prefix}…` : ''}
               </p>
               {a.recent_containers?.length > 0 && (
                 <div className="mt-2 flex flex-wrap gap-2">
@@ -423,31 +425,29 @@ function AgentsPanel() {
               )}
             </div>
           ))}
-          {agents.length === 0 && (
+          {hosts.length === 0 && (
             <p className="text-[var(--text-muted)]">
-              No agents yet — create one to get Vector yaml and an ingest token for that machine.
+              No hosts yet — add one to create an ingest API key and download Vector yaml for that machine.
             </p>
           )}
         </div>
       </Card>
 
       {wizardOpen && (
-        <AgentWizardModal
+        <HostWizardModal
           onClose={() => setWizardOpen(false)}
           onCreated={() => {
             reload()
           }}
         />
       )}
-      {viewAgent && (
-        <AgentConnectModal agent={viewAgent} onClose={() => setViewAgent(null)} />
-      )}
-      {removeAgent && (
-        <RemoveAgentModal
-          agent={removeAgent}
-          onClose={() => setRemoveAgent(null)}
+      {viewHost && <HostConnectModal host={viewHost} onClose={() => setViewHost(null)} />}
+      {removeHost && (
+        <RemoveHostModal
+          host={removeHost}
+          onClose={() => setRemoveHost(null)}
           onRemoved={() => {
-            setRemoveAgent(null)
+            setRemoveHost(null)
             reload()
           }}
         />
@@ -647,7 +647,7 @@ function CopyBlocks({
   )
 }
 
-function AgentWizardModal({
+function HostWizardModal({
   onClose,
   onCreated,
 }: {
@@ -663,7 +663,7 @@ function AgentWizardModal({
   const [info, setInfo] = useState<(AgentConnectInfo & { agent: Agent }) | null>(null)
 
   return (
-    <ModalShell title="Create agent" onClose={onClose} wide={step === 'done'}>
+    <ModalShell title="Add host" onClose={onClose} wide={step === 'done'}>
       {step === 'password' && (
         <form
           className="space-y-3"
@@ -720,10 +720,12 @@ function AgentWizardModal({
           }}
         >
           <p className="text-sm text-[var(--text-muted)]">
-            This name is stored as the log hostname (e.g. <code className="text-xs">app-server-1</code>).
+            This creates a dedicated ingest API key. The name is forced as the log{' '}
+            <code className="text-xs">host</code> on every event (e.g.{' '}
+            <code className="text-xs">app-server-1</code>).
           </p>
           <div>
-            <Label>Agent name / hostname</Label>
+            <Label>Host name</Label>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -737,7 +739,7 @@ function AgentWizardModal({
             description={PLATFORM_OPTIONS.find((p) => p.id === platform)?.description}
           />
           <p className="text-sm text-[var(--text-muted)]">
-            You can switch presets after create — same token, different Vector yaml.
+            You can switch Vector presets after create — same ingest key, different yaml.
           </p>
           {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
           <div className="flex gap-2">
@@ -745,7 +747,7 @@ function AgentWizardModal({
               Back
             </Button>
             <Button type="submit" disabled={!name.trim() || busy}>
-              {busy ? 'Creating…' : 'Create'}
+              {busy ? 'Creating…' : 'Create ingest key'}
             </Button>
           </div>
         </form>
@@ -753,11 +755,11 @@ function AgentWizardModal({
       {step === 'done' && info && (
         <div className="space-y-3">
           <p className="text-sm text-[var(--accent)]">
-            Agent <strong>{info.agent.name}</strong> created. Pick a platform preset and copy the Vector
-            config onto that machine.
+            Host <strong>{info.agent.name}</strong> registered with a dedicated ingest key. Pick a platform
+            preset and install Vector on that machine with the config below.
           </p>
           <CopyBlocks
-            tokenLabel="Ingest token"
+            tokenLabel="Ingest API key"
             yamlLabel="Vector yaml"
             info={info}
             platform={platform}
@@ -770,7 +772,7 @@ function AgentWizardModal({
   )
 }
 
-function AgentConnectModal({ agent, onClose }: { agent: Agent; onClose: () => void }) {
+function HostConnectModal({ host, onClose }: { host: Agent; onClose: () => void }) {
   const [password, setPassword] = useState('')
   const [platform, setPlatform] = useState('docker')
   const [error, setError] = useState<string | null>(null)
@@ -778,7 +780,7 @@ function AgentConnectModal({ agent, onClose }: { agent: Agent; onClose: () => vo
   const [info, setInfo] = useState<AgentConnectInfo | null>(null)
 
   return (
-    <ModalShell title={`Connect info — ${agent.host}`} onClose={onClose} wide={!!info}>
+    <ModalShell title={`Vector config — ${host.host}`} onClose={onClose} wide={!!info}>
       {!info ? (
         <form
           className="space-y-3"
@@ -788,7 +790,7 @@ function AgentConnectModal({ agent, onClose }: { agent: Agent; onClose: () => vo
             setBusy(true)
             setError(null)
             try {
-              const res = await api.agentConnectInfo(agent.id, password, platform)
+              const res = await api.agentConnectInfo(host.id, password, platform)
               setInfo(res)
               setPlatform(res.platform ?? platform)
             } catch (err) {
@@ -799,7 +801,7 @@ function AgentConnectModal({ agent, onClose }: { agent: Agent; onClose: () => vo
           }}
         >
           <p className="text-sm text-[var(--text-muted)]">
-            Re-enter your admin password to reveal the ingest token and Vector yaml.
+            Re-enter your admin password to reveal this host’s ingest API key and Vector yaml.
           </p>
           <div>
             <Label>Admin password</Label>
@@ -820,7 +822,7 @@ function AgentConnectModal({ agent, onClose }: { agent: Agent; onClose: () => vo
       ) : (
         <div className="space-y-3">
           <CopyBlocks
-            tokenLabel="Ingest token"
+            tokenLabel="Ingest API key"
             yamlLabel="Vector yaml"
             info={info}
             platform={platform}
@@ -833,12 +835,12 @@ function AgentConnectModal({ agent, onClose }: { agent: Agent; onClose: () => vo
   )
 }
 
-function RemoveAgentModal({
-  agent,
+function RemoveHostModal({
+  host,
   onClose,
   onRemoved,
 }: {
-  agent: Agent
+  host: Agent
   onClose: () => void
   onRemoved: () => void
 }) {
@@ -847,7 +849,7 @@ function RemoveAgentModal({
   const [busy, setBusy] = useState(false)
 
   return (
-    <ModalShell title={`Remove ${agent.host}`} onClose={onClose}>
+    <ModalShell title={`Remove ${host.host}`} onClose={onClose}>
       <form
         className="space-y-3"
         onSubmit={async (e) => {
@@ -856,7 +858,7 @@ function RemoveAgentModal({
           setBusy(true)
           setError(null)
           try {
-            await api.removeAgent(agent.id, password)
+            await api.removeAgent(host.id, password)
             onRemoved()
           } catch (err) {
             setError(err instanceof Error ? err.message : 'Failed')
@@ -866,8 +868,8 @@ function RemoveAgentModal({
         }}
       >
         <p className="text-sm text-[var(--text-muted)]">
-          This revokes the agent’s ingest key so Vector can no longer push. Existing logs for this host stay
-          searchable until retention deletes them.
+          This revokes the host’s ingest API key so Vector can no longer push. Existing logs for this host
+          stay searchable until retention deletes them.
         </p>
         <div>
           <Label>Admin password</Label>
@@ -885,7 +887,7 @@ function RemoveAgentModal({
             Cancel
           </Button>
           <Button type="submit" variant="danger" disabled={!password || busy}>
-            {busy ? 'Removing…' : 'Remove agent'}
+            {busy ? 'Removing…' : 'Remove host'}
           </Button>
         </div>
       </form>
@@ -1002,6 +1004,8 @@ function SettingsPanel() {
   const [msg, setMsg] = useState<string | null>(null)
   const [restartNote, setRestartNote] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [embTestMsg, setEmbTestMsg] = useState<string | null>(null)
+  const [embTesting, setEmbTesting] = useState(false)
 
   useEffect(() => {
     api.settings().then((s) => {
@@ -1033,8 +1037,8 @@ function SettingsPanel() {
       <Card className="space-y-3">
         <h2 className="text-lg font-medium">Public URL</h2>
         <p className="text-sm text-[var(--text-muted)]">
-          Used in Vector and MCP snippets. Use your LAN IP or reverse-proxy origin so remote agents can
-          reach this host — not localhost if agents are on other machines.
+          Used in Vector and MCP snippets. Use your LAN IP or reverse-proxy origin so remote machines can
+          reach this collector — not localhost if Vector runs elsewhere.
         </p>
         <div>
           <Label>Public URL</Label>
@@ -1126,6 +1130,50 @@ function SettingsPanel() {
         <p className="text-xs text-[var(--text-muted)]">
           Status: {settings.embeddings_enabled ? 'enabled' : 'disabled'}
         </p>
+        {embTestMsg && (
+          <p
+            className={`text-sm ${
+              embTestMsg.startsWith('OK') ? 'text-[var(--accent)]' : 'text-[var(--danger)]'
+            }`}
+          >
+            {embTestMsg}
+          </p>
+        )}
+        <Button
+          type="button"
+          variant="ghost"
+          disabled={embTesting || (!embUrl.trim() && !settings.embeddings_base_url) || (!embModel.trim() && !settings.embeddings_model)}
+          onClick={async () => {
+            setEmbTesting(true)
+            setEmbTestMsg(null)
+            try {
+              const body: {
+                embeddings_base_url?: string
+                embeddings_model?: string
+                embeddings_api_key?: string
+                embedding_dim?: number
+              } = {}
+              if (embUrl.trim()) body.embeddings_base_url = embUrl.trim()
+              if (embModel.trim()) body.embeddings_model = embModel.trim()
+              if (embKey.trim()) body.embeddings_api_key = embKey.trim()
+              const dim = Number(embDim)
+              if (Number.isFinite(dim) && dim >= 1) body.embedding_dim = dim
+              const res = await api.testEmbeddings(body)
+              const dimNote = res.dim_match
+                ? 'matches configured dim'
+                : `configured dim is ${res.configured_dim} — update Embedding dim if searches look wrong`
+              setEmbTestMsg(
+                `OK — ${res.dimensions}-d vector from ${res.model} in ${res.latency_ms}ms (${dimNote})`,
+              )
+            } catch (err) {
+              setEmbTestMsg(err instanceof Error ? err.message : 'Test failed')
+            } finally {
+              setEmbTesting(false)
+            }
+          }}
+        >
+          {embTesting ? 'Testing…' : 'Test connection'}
+        </Button>
       </Card>
 
       {msg && <p className="text-sm text-[var(--accent)]">{msg}</p>}
