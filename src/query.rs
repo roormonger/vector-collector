@@ -884,6 +884,45 @@ pub fn stats(db: &Db) -> AppResult<Value> {
     }))
 }
 
+/// Admin live viewer: newest events, or FTS/host-filtered search mapped to the same compact shape.
+pub fn admin_recent_or_search(
+    db: &Db,
+    host: Option<&str>,
+    text: Option<&str>,
+    limit: usize,
+) -> AppResult<Vec<Value>> {
+    let limit = limit.clamp(1, 200);
+    let host = host.map(str::trim).filter(|s| !s.is_empty());
+    let text = text.map(str::trim).filter(|s| !s.is_empty());
+    if host.is_none() && text.is_none() {
+        return recent_events(db, limit);
+    }
+    let req = SearchRequest {
+        filters: Some(Filters {
+            hosts: host.map(|h| vec![h.to_string()]),
+            ..Default::default()
+        }),
+        text: text.map(|t| t.to_string()),
+        limit: Some(limit),
+        include_raw: Some(false),
+        ..Default::default()
+    };
+    let result = search(db, &req, None)?;
+    Ok(result.events.into_iter().map(compact_admin_event).collect())
+}
+
+fn compact_admin_event(v: Value) -> Value {
+    json!({
+        "id": v.get("id").cloned().unwrap_or(Value::Null),
+        "ts": v.get("ts").cloned().unwrap_or(Value::Null),
+        "host": v.get("host").cloned().unwrap_or(Value::Null),
+        "container_name": v.get("container_name").cloned().unwrap_or(Value::Null),
+        "stream": v.get("stream").cloned().unwrap_or(Value::Null),
+        "message": v.get("message").cloned().unwrap_or(json!("")),
+        "message_truncated": v.get("message_truncated").cloned().unwrap_or(json!(false)),
+    })
+}
+
 /// Newest events for the admin live viewer (newest first).
 pub fn recent_events(db: &Db, limit: usize) -> AppResult<Vec<Value>> {
     let limit = limit.clamp(1, 200);

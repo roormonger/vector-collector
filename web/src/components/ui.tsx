@@ -1,5 +1,10 @@
 import { cn } from '../lib/utils'
-import type { ButtonHTMLAttributes, InputHTMLAttributes, PropsWithChildren } from 'react'
+import type {
+  ButtonHTMLAttributes,
+  InputHTMLAttributes,
+  PropsWithChildren,
+  SelectHTMLAttributes,
+} from 'react'
 
 export function Button({
   className,
@@ -25,6 +30,18 @@ export function Button({
 export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
+      className={cn(
+        'w-full rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm text-[var(--text)] outline-none focus:ring-2 focus:ring-[var(--ring)]',
+        className,
+      )}
+      {...props}
+    />
+  )
+}
+
+export function Select({ className, ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
+  return (
+    <select
       className={cn(
         'w-full rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm text-[var(--text)] outline-none focus:ring-2 focus:ring-[var(--ring)]',
         className,

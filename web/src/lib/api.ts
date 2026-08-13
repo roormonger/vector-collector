@@ -55,7 +55,13 @@ export const api = {
       body: JSON.stringify({ password }),
     }),
   stats: () => request<Stats>('/v1/admin/stats'),
-  recentEvents: () => request<RecentEvent[]>('/v1/admin/recent-events'),
+  recentEvents: (opts?: { host?: string; text?: string }) => {
+    const params = new URLSearchParams()
+    if (opts?.host) params.set('host', opts.host)
+    if (opts?.text) params.set('text', opts.text)
+    const q = params.toString()
+    return request<RecentEvent[]>(`/v1/admin/recent-events${q ? `?${q}` : ''}`)
+  },
   settings: () => request<Settings>('/v1/admin/settings'),
   saveSettings: (body: SettingsUpdate) =>
     request<{ ok: boolean; restart_required?: string[] }>('/v1/admin/settings', {

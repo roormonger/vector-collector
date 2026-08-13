@@ -9,7 +9,7 @@ import {
   type SettingsUpdate,
   type Stats,
 } from './lib/api'
-import { Badge, Button, Card, Input, Label } from './components/ui'
+import { Badge, Button, Card, Input, Label, Select } from './components/ui'
 
 type Tab = 'overview' | 'hosts' | 'mcp' | 'settings'
 
@@ -147,6 +147,30 @@ function Overview() {
   const [events, setEvents] = useState<RecentEvent[]>([])
   const [liveError, setLiveError] = useState<string | null>(null)
   const [paused, setPaused] = useState(false)
+  const [hostFilter, setHostFilter] = useState('')
+  const [keyword, setKeyword] = useState('')
+  const [debouncedKeyword, setDebouncedKeyword] = useState('')
+  const [hosts, setHosts] = useState<string[]>([])
+
+  const filtered = Boolean(hostFilter || debouncedKeyword)
+
+  useEffect(() => {
+    api
+      .agents()
+      .then((rows) => {
+        const names = [
+          ...new Set(rows.map((a) => a.host || a.name).filter((n) => n.trim().length > 0)),
+        ]
+        names.sort((a, b) => a.localeCompare(b))
+        setHosts(names)
+      })
+      .catch(console.error)
+  }, [])
+
+  useEffect(() => {
+    const id = window.setTimeout(() => setDebouncedKeyword(keyword.trim()), 300)
+    return () => window.clearTimeout(id)
+  }, [keyword])
 
   useEffect(() => {
     let cancelled = false
@@ -167,11 +191,13 @@ function Overview() {
   }, [])
 
   useEffect(() => {
-    if (paused) return
     let cancelled = false
     const tick = () => {
       api
-        .recentEvents()
+        .recentEvents({
+          host: hostFilter || undefined,
+          text: debouncedKeyword || undefined,
+        })
         .then((rows) => {
           if (!cancelled) {
             setEvents(rows)
@@ -185,12 +211,17 @@ function Overview() {
         })
     }
     tick()
+    if (paused) {
+      return () => {
+        cancelled = true
+      }
+    }
     const id = window.setInterval(tick, 2500)
     return () => {
       cancelled = true
       window.clearInterval(id)
     }
-  }, [paused])
+  }, [paused, hostFilter, debouncedKeyword])
 
   return (
     <div className="space-y-6">
@@ -228,13 +259,35 @@ function Overview() {
           <div>
             <h2 className="text-lg font-medium">Live logs</h2>
             <p className="text-sm text-[var(--text-muted)]">
-              Newest events · polls every 2.5s
+              {filtered ? 'Filtered search' : 'Newest events'} · polls every 2.5s
               {paused ? ' · paused' : ''}
             </p>
           </div>
-          <Button variant="ghost" onClick={() => setPaused((p) => !p)}>
-            {paused ? 'Resume' : 'Pause'}
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Select
+              className="w-auto min-w-[10rem]"
+              value={hostFilter}
+              onChange={(e) => setHostFilter(e.target.value)}
+              aria-label="Filter by host"
+            >
+              <option value="">All hosts</option>
+              {hosts.map((h) => (
+                <option key={h} value={h}>
+                  {h}
+                </option>
+              ))}
+            </Select>
+            <Input
+              className="w-48"
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
+              placeholder="Keywords"
+              aria-label="Search keywords"
+            />
+            <Button variant="ghost" onClick={() => setPaused((p) => !p)}>
+              {paused ? 'Resume' : 'Pause'}
+            </Button>
+          </div>
         </div>
         {liveError && (
           <p className="border-b border-[var(--border)] px-4 py-2 text-sm text-[var(--danger)]">
@@ -243,7 +296,9 @@ function Overview() {
         )}
         <div className="max-h-[min(60vh,640px)] overflow-auto font-mono text-xs leading-relaxed">
           {events.length === 0 && !liveError ? (
-            <p className="px-4 py-8 text-center text-[var(--text-muted)]">No events yet</p>
+            <p className="px-4 py-8 text-center text-[var(--text-muted)]">
+              {filtered ? 'No matching events' : 'No events yet'}
+            </p>
           ) : (
             <table className="w-full border-collapse text-left">
               <tbody>

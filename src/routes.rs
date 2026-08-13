@@ -11,7 +11,7 @@ use crate::openapi::{
 use crate::query::{self, ContextRequest, FacetsRequest, SearchRequest};
 use crate::state::AppState;
 use axum::body::Bytes;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
@@ -576,12 +576,25 @@ async fn admin_stats(
     Ok(Json(stats))
 }
 
+#[derive(Deserialize, Default)]
+struct RecentEventsQuery {
+    host: Option<String>,
+    text: Option<String>,
+    limit: Option<usize>,
+}
+
 async fn admin_recent_events(
     State(state): State<AppState>,
     jar: CookieJar,
+    Query(q): Query<RecentEventsQuery>,
 ) -> AppResult<impl IntoResponse> {
     require_admin(&state, &jar)?;
-    Ok(Json(query::recent_events(&state.db, 80)?))
+    Ok(Json(query::admin_recent_or_search(
+        &state.db,
+        q.host.as_deref(),
+        q.text.as_deref(),
+        q.limit.unwrap_or(80),
+    )?))
 }
 
 #[derive(Deserialize, Default)]
