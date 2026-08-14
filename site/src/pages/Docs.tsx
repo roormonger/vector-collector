@@ -532,8 +532,13 @@ function QueryApi() {
       lead="REST endpoints for scripts and custom clients — same data MCP uses."
     >
       <p>
-        Interactive OpenAPI (Swagger UI) on the running collector: <code>/docs</code> — raw spec at{' '}
-        <code>/api-docs/openapi.json</code>.
+        Interactive OpenAPI (Swagger UI) on the running collector: <code>/docs</code> — full spec at{' '}
+        <code>/api-docs/openapi.json</code> (includes ingest).
+      </p>
+      <p>
+        Open WebUI Tool Servers should use the query-only spec at <code>/api-docs/query.json</code> plus
+        the query bearer token from the admin MCP tab. That spec has no ingest endpoints. MCP clients
+        keep using <code>/mcp</code>.
       </p>
 
       <h2 className="text-lg font-semibold text-[var(--text)]">Query (bearer query key)</h2>

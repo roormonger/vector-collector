@@ -119,6 +119,7 @@ export type AgentConnectInfo = {
 export type McpConnectInfo = {
   token: string
   url: string
+  openapi_url: string
   env: string
   yaml: string
 }

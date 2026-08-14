@@ -137,7 +137,9 @@ Removing a host (Hosts → Remove) revokes that machine’s ingest key; its hist
 
 ## Query API (REST)
 
-Interactive OpenAPI docs (Swagger UI): **`/docs`** — raw spec at `/api-docs/openapi.json`.
+Interactive OpenAPI docs (Swagger UI): **`/docs`** — full spec at `/api-docs/openapi.json` (includes ingest).
+
+**Open WebUI Tool Servers:** use the query-only spec at **`/api-docs/query.json`** plus the query bearer token from the MCP tab. That spec has no ingest endpoints. MCP clients should keep using `/mcp`.
 
 Bearer query key:
 

@@ -4,6 +4,8 @@ Load this when using REST instead of MCP, or when a call fails and you need the 
 
 Base URL = Public URL from collector Settings (no trailing slash). Query-scoped bearer only.
 
+OpenAPI clients (e.g. Open WebUI Tool Servers): `{base}/api-docs/query.json` — query endpoints only, not the full `/api-docs/openapi.json`.
+
 ```
 Authorization: Bearer $LOGDB_QUERY_KEY
 Content-Type: application/json

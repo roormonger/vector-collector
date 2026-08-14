@@ -6,7 +6,8 @@ use crate::auth::{
 use crate::error::{AppError, AppResult};
 use crate::ingest::{normalize_events, IngestBatch};
 use crate::openapi::{
-    ApiDoc, ErrorBody, HealthResponse, IngestAccepted, IngestHealthResponse, ReadyResponse,
+    query_openapi, ApiDoc, ErrorBody, HealthResponse, IngestAccepted, IngestHealthResponse,
+    ReadyResponse,
 };
 use crate::query::{self, ContextRequest, FacetsRequest, SearchRequest};
 use crate::state::AppState;
@@ -31,6 +32,7 @@ use utoipa_swagger_ui::SwaggerUi;
 pub fn app_router(state: AppState, web_dir: Option<std::path::PathBuf>) -> Router {
     let api = Router::new()
         .merge(SwaggerUi::new("/docs").url("/api-docs/openapi.json", ApiDoc::openapi()))
+        .route("/api-docs/query.json", get(query_openapi_spec))
         .route("/healthz", get(healthz))
         .route("/readyz", get(readyz))
         .route("/v1/ingest/health", get(ingest_health).head(ingest_health))
@@ -76,6 +78,10 @@ pub fn app_router(state: AppState, web_dir: Option<std::path::PathBuf>) -> Route
 )]
 pub async fn healthz() -> Json<HealthResponse> {
     Json(HealthResponse { ok: true })
+}
+
+async fn query_openapi_spec(State(state): State<AppState>) -> impl IntoResponse {
+    Json(query_openapi(&state.settings.read().public_base_url))
 }
 
 /// Authenticated liveness for Vector's HTTP sink healthcheck (validates ingest API key).
@@ -518,9 +524,11 @@ fn mcp_bundle(public_base_url: &str, token: &str) -> Value {
 "#
     );
     let env = format!("LOGDB_QUERY_KEY={token}");
+    let openapi_url = format!("{}/api-docs/query.json", public_base_url.trim_end_matches('/'));
     json!({
         "token": token,
         "url": url,
+        "openapi_url": openapi_url,
         "env": env,
         "yaml": yaml,
     })

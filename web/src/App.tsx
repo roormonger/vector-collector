@@ -963,8 +963,8 @@ function McpPanel() {
       <div>
         <h2 className="text-lg font-medium">MCP</h2>
         <p className="mt-1 text-sm text-[var(--text-muted)]">
-          Reveal the query token and MCP client config. After unlocking you can rotate the token to a new
-          random value (old token stops working immediately).
+          Reveal the query token, MCP client config, and OpenAPI URL for Open WebUI Tool Servers. After
+          unlocking you can rotate the token to a new random value (old token stops working immediately).
         </p>
         <PublicUrlHint url={publicBaseUrl} />
       </div>
@@ -1005,6 +1005,7 @@ function McpPanel() {
       ) : (
         <div className="space-y-3">
           <CopyBlocks tokenLabel="Query token" yamlLabel="MCP client config" info={info} yamlFilename="mcp-vector-collector.yaml" />
+          <OpenApiUrlBlock url={info.openapi_url} />
           <div className="flex flex-wrap gap-2">
             <Button
               variant="danger"
@@ -1040,6 +1041,35 @@ function McpPanel() {
         </div>
       )}
     </Card>
+  )
+}
+
+function OpenApiUrlBlock({ url }: { url: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <Label>OpenAPI (Open WebUI Tool Servers)</Label>
+        <Button
+          variant="ghost"
+          onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(url)
+              setCopied(true)
+            } catch {
+              setCopied(false)
+            }
+          }}
+        >
+          {copied ? 'Copied' : 'Copy'}
+        </Button>
+      </div>
+      <code className="block break-all rounded-md bg-[var(--bg)] px-2 py-2 text-xs">{url}</code>
+      <p className="mt-1 text-sm text-[var(--text-muted)]">
+        Point Open WebUI Tool Servers here and use the same query bearer token. Do not use{' '}
+        <code>/api-docs/openapi.json</code> — that spec includes ingest.
+      </p>
+    </div>
   )
 }
 
