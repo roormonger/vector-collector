@@ -267,8 +267,9 @@ pub async fn query_schema(
 ) -> AppResult<Json<Value>> {
     require_query_key(&state, &headers).await?;
     Ok(Json(query::schema_document(
+        &state.db,
         state.settings.read().embeddings_enabled(),
-    )))
+    )?))
 }
 
 #[utoipa::path(
@@ -289,7 +290,7 @@ pub async fn query_facets(
     Json(body): Json<FacetsRequest>,
 ) -> AppResult<Json<Value>> {
     require_query_key(&state, &headers).await?;
-    let filters = body.filters.unwrap_or_default();
+    let filters = query::resolve_time(body.filters.unwrap_or_default(), true)?;
     Ok(Json(query::facets(&state.db, &filters)?))
 }
 
@@ -311,6 +312,8 @@ pub async fn query_search(
     Json(req): Json<SearchRequest>,
 ) -> AppResult<Json<Value>> {
     require_query_key(&state, &headers).await?;
+    let mut req = req;
+    req.filters = Some(query::resolve_time(req.filters.take().unwrap_or_default(), true)?);
     let emb_client = state.embeddings.read().clone();
     let emb = if let (Some(q), Some(client)) = (
         req.semantic_query.as_ref().filter(|s| !s.trim().is_empty()),

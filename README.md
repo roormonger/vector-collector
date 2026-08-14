@@ -141,7 +141,7 @@ Interactive OpenAPI docs (Swagger UI): **`/docs`** — full spec at `/api-docs/o
 
 **Open WebUI Tool Servers:** use the query-only spec at **`/api-docs/query.json`** plus the query bearer token from the MCP tab. That spec has no ingest endpoints. MCP clients should keep using `/mcp`.
 
-Bearer query key:
+Bearer query key. Facets/search default to the last 1 hour if you omit a time window; prefer `filters.since` (`1h`, `24h`) over RFC3339. `GET /v1/query/schema` lists registered `hosts`.
 
 - `GET /v1/query/schema`
 - `POST /v1/query/facets`

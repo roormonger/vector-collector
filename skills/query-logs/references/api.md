@@ -17,8 +17,7 @@ Used by facets and search:
 
 ```json
 {
-  "ts_from": "2026-08-12T21:00:00Z",
-  "ts_to": "2026-08-12T22:00:00Z",
+  "since": "1h",
   "hosts": ["main-pc"],
   "containers": ["grafana"],
   "streams": ["stderr"],
@@ -29,7 +28,7 @@ Used by facets and search:
 }
 ```
 
-All keys optional. Timestamps are UTC RFC3339.
+All keys optional. Prefer `since` (`15m`, `1h`, `24h`, `7d`) or `last_minutes`. RFC3339 `ts_from` / `ts_to` still work. If no time is set, the API uses the last 1 hour. `hosts` must be registered names from `GET /v1/query/schema`.
 
 ## Endpoints
 
@@ -39,13 +38,13 @@ All keys optional. Timestamps are UTC RFC3339.
 GET /v1/query/schema
 ```
 
-Check `semantic_search_enabled` and `recommended_loop`.
+Check `hosts`, `semantic_search_enabled`, and `recommended_loop`.
 
 ### Facets
 
 ```
 POST /v1/query/facets
-{"filters": { "ts_from": "...", "ts_to": "..." }}
+{"filters": { "since": "1h" }}
 ```
 
 Returns top counts for `host`, `container_name`, `image`, `stream`, `agent_id`.
@@ -55,15 +54,15 @@ Returns top counts for `host`, `container_name`, `image`, `stream`, `agent_id`.
 ```
 POST /v1/query/search
 {
-  "filters": {},
-  "text": "error timeout",
+  "filters": { "since": "1h", "hosts": ["main-pc"] },
+  "text": "error OR fail",
   "semantic_query": null,
   "limit": 25,
   "cursor": null
 }
 ```
 
-Messages are truncated (~500 chars). Use `next_cursor` to page. Default limit 25, max 200.
+Messages are truncated (~500 chars). Use `next_cursor` to page. Default limit 25, max 200. Adjacent FTS words are AND; `OR` / `AND` / `NOT` are operators. Zero hits include a `hint`.
 
 ### One event
 

@@ -23,9 +23,9 @@ Logs live in **Vector Collector**, not this repo’s files. Query via MCP (prefe
 
 ## Loop (always)
 
-1. `logs_schema` — note `semantic_search_enabled`.
-2. `logs_facets` with a time window (`ts_from` / `ts_to`, UTC RFC3339). Default: last 1 hour if the user did not specify.
-3. `logs_search` with narrowed `filters` + `text` keywords from the question. `limit` 25.
+1. `logs_schema` — note `hosts` (registered names) and `semantic_search_enabled`.
+2. `logs_facets` with `filters.since` (`15m`, `1h`, `24h`). If you omit time, the API uses the last 1 hour.
+3. `logs_search` with narrowed `filters` + `text` keywords. `limit` 25.
 4. `logs_context` on interesting `id`s (same container/channel or trace).
 5. `logs_get` only when the truncated message is not enough.
 
@@ -38,7 +38,7 @@ Do not dump hundreds of lines. Summarize hits (host, container_name, ts, message
 | a machine name (`main-pc`, `mini-2`) | `filters.hosts` — this is the **registered host**, not OS hostname |
 | a Docker container | `filters.containers` |
 | stderr / Application / System | `filters.streams` or `container_name` (see remap below) |
-| last N minutes/hours | `ts_from` / `ts_to` |
+| last N minutes/hours | `filters.since` (`15m`, `1h`, `24h`) or `last_minutes` |
 
 `container_name` depends on the Vector preset:
 
@@ -49,17 +49,17 @@ Do not dump hundreds of lines. Summarize hits (host, container_name, ts, message
 
 ## Search
 
-- Always set `text` (FTS keywords). Covers **every** stored line.
+- Always set `text` (FTS keywords). Covers **every** stored line. Adjacent words are AND; use `OR` between alternatives (`error OR fail OR exception`).
 - Add `semantic_query` only if schema says semantic search is enabled **and** keywords are vague.
 - Embeddings are sampled; keyword search is the source of truth.
+- Empty results include a `hint` (window, hosts, text). Widen `since`, drop hosts, or simplify keywords.
 
 Example MCP `logs_search` arguments:
 
 ```json
 {
   "filters": {
-    "ts_from": "2026-08-12T21:00:00Z",
-    "ts_to": "2026-08-12T22:00:00Z",
+    "since": "1h",
     "hosts": ["main-pc"]
   },
   "text": "error OR fail OR exception",

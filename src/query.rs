@@ -2,6 +2,7 @@ use crate::db::Db;
 use crate::error::{AppError, AppResult};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
+use chrono::{DateTime, Duration, SecondsFormat, Utc};
 use rusqlite::{params, params_from_iter, types::Value as SqlValue};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -27,6 +28,11 @@ pub struct Filters {
     pub ts_from: Option<String>,
     /// RFC3339
     pub ts_to: Option<String>,
+    /// Relative window, e.g. "15m", "1h", "24h", "7d". Sets ts_from (and ts_to=now if omitted).
+    #[schema(example = "1h")]
+    pub since: Option<String>,
+    /// Look back this many minutes from now (alternative to since).
+    pub last_minutes: Option<i64>,
     pub hosts: Option<Vec<String>>,
     pub containers: Option<Vec<String>>,
     pub streams: Option<Vec<String>>,
@@ -46,6 +52,8 @@ pub struct SearchResponse {
     pub events: Vec<Value>,
     pub next_cursor: Option<String>,
     pub count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hint: Option<String>,
 }
 
 #[derive(Clone)]
@@ -73,22 +81,140 @@ fn decode_cursor(s: &str) -> AppResult<Cursor> {
     })
 }
 
-pub fn schema_document(embeddings_enabled: bool) -> Value {
+fn rfc3339(dt: DateTime<Utc>) -> String {
+    dt.to_rfc3339_opts(SecondsFormat::Secs, true)
+}
+
+/// Resolve `since` / `last_minutes` into RFC3339 bounds. When `default_last_hour` is true and
+/// no time is set, use the last 1 hour. Lookback is capped at 30 days.
+pub fn resolve_time(mut filters: Filters, default_last_hour: bool) -> AppResult<Filters> {
+    let now = Utc::now();
+    if let Some(mins) = filters.last_minutes.take() {
+        if mins <= 0 {
+            return Err(AppError::BadRequest("last_minutes must be > 0".into()));
+        }
+        let mins = mins.min(60 * 24 * 30);
+        filters.ts_from = Some(rfc3339(now - Duration::minutes(mins)));
+        if filters.ts_to.is_none() {
+            filters.ts_to = Some(rfc3339(now));
+        }
+    } else if let Some(since) = filters.since.take() {
+        let from = parse_since(&since, now)?;
+        filters.ts_from = Some(rfc3339(from));
+        if filters.ts_to.is_none() {
+            filters.ts_to = Some(rfc3339(now));
+        }
+    }
+    if default_last_hour && filters.ts_from.is_none() && filters.ts_to.is_none() {
+        filters.ts_from = Some(rfc3339(now - Duration::hours(1)));
+        filters.ts_to = Some(rfc3339(now));
+    }
+    Ok(filters)
+}
+
+fn parse_since(s: &str, now: DateTime<Utc>) -> AppResult<DateTime<Utc>> {
+    let s = s.trim().to_ascii_lowercase();
+    let (n_str, unit) = if let Some(rest) = s.strip_suffix('m') {
+        (rest, 'm')
+    } else if let Some(rest) = s.strip_suffix('h') {
+        (rest, 'h')
+    } else if let Some(rest) = s.strip_suffix('d') {
+        (rest, 'd')
+    } else {
+        return Err(AppError::BadRequest(format!(
+            "invalid since '{s}': use 15m, 1h, 24h, or 7d"
+        )));
+    };
+    let n: i64 = n_str.parse().map_err(|_| {
+        AppError::BadRequest(format!("invalid since '{s}': use 15m, 1h, 24h, or 7d"))
+    })?;
+    if n <= 0 {
+        return Err(AppError::BadRequest("since must be > 0".into()));
+    }
+    let dur = match unit {
+        'm' => Duration::minutes(n),
+        'h' => Duration::hours(n),
+        'd' => Duration::days(n),
+        _ => unreachable!(),
+    };
+    if dur > Duration::days(30) {
+        return Err(AppError::BadRequest("since cannot exceed 30d".into()));
+    }
+    Ok(now - dur)
+}
+
+pub fn filters_input_schema() -> Value {
     json!({
+        "type": "object",
+        "description": "Optional filters. If no time is set, the last 1 hour is used. Prefer since (e.g. \"1h\") over RFC3339. hosts must be registered names from logs_schema.",
+        "properties": {
+            "since": {
+                "type": "string",
+                "description": "Relative lookback from now: 15m, 1h, 24h, 7d"
+            },
+            "last_minutes": {
+                "type": "integer",
+                "description": "Look back this many minutes from now (alternative to since)"
+            },
+            "ts_from": { "type": "string", "description": "UTC RFC3339 start" },
+            "ts_to": { "type": "string", "description": "UTC RFC3339 end" },
+            "hosts": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Registered host names (see logs_schema.hosts)"
+            },
+            "containers": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Docker container, journal unit, Windows Event Log channel, or file path"
+            },
+            "streams": { "type": "array", "items": { "type": "string" } },
+            "agent_ids": { "type": "array", "items": { "type": "string" } },
+            "trace_id": { "type": "string" },
+            "request_id": { "type": "string" },
+            "label_equals": {
+                "type": "object",
+                "additionalProperties": { "type": "string" }
+            }
+        }
+    })
+}
+
+fn registered_hosts(db: &Db) -> AppResult<Vec<String>> {
+    let conn = db.lock();
+    let mut stmt = conn
+        .prepare("SELECT name FROM agents ORDER BY name COLLATE NOCASE")
+        .map_err(|e| AppError::Internal(e.into()))?;
+    let rows = stmt
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|e| AppError::Internal(e.into()))?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r.map_err(|e| AppError::Internal(e.into()))?);
+    }
+    Ok(out)
+}
+
+pub fn schema_document(db: &Db, embeddings_enabled: bool) -> AppResult<Value> {
+    Ok(json!({
         "name": "vector-collector",
-        "description": "Search logs ingested into Vector Collector across all machines. Prefer facets → search → context. Timestamps are UTC RFC3339.",
+        "description": "Search logs ingested into Vector Collector across all machines. Prefer facets → search → context. Prefer filters.since (e.g. 1h) over RFC3339. If no time is set, the last 1 hour is used.",
         "recommended_loop": [
-            "Call logs_facets (or POST /v1/query/facets) with a time window to see busy hosts/containers",
-            "Call logs_search with narrowed filters + keyword text from the user's natural language question",
+            "Call logs_schema to see registered hosts and semantic_search_enabled",
+            "Call logs_facets with since (e.g. 1h) to see busy hosts/containers",
+            "Call logs_search with narrowed filters + keyword text (OR/AND supported)",
             "Call logs_context on interesting hits to see surrounding lines",
             "Call logs_get only when full raw payload is needed"
         ],
+        "hosts": registered_hosts(db)?,
         "fields": [
             "id", "ts", "host", "container_name", "container_id", "image", "stream",
             "source_type", "agent_id", "trace_id", "request_id", "message", "labels", "raw"
         ],
         "filters": {
-            "ts_from": "RFC3339",
+            "since": "15m | 1h | 24h | 7d",
+            "last_minutes": "integer",
+            "ts_from": "RFC3339 (optional if since is set)",
             "ts_to": "RFC3339",
             "hosts": ["string"],
             "containers": ["string"],
@@ -101,9 +227,10 @@ pub fn schema_document(embeddings_enabled: bool) -> Value {
         "semantic_search_enabled": embeddings_enabled,
         "defaults": {
             "limit": 25,
-            "message_truncate_chars": 500
+            "message_truncate_chars": 500,
+            "time_window": "last 1 hour when since/ts_from/ts_to omitted"
         }
-    })
+    }))
 }
 
 pub fn facets(db: &Db, filters: &Filters) -> AppResult<Value> {
@@ -113,8 +240,8 @@ pub fn facets(db: &Db, filters: &Filters) -> AppResult<Value> {
     let mut out = serde_json::Map::new();
     for dim in dims {
         let sql = format!(
-            "SELECT coalesce({dim}, '') AS k, COUNT(*) AS c
-             FROM log_events {where_sql}
+            "SELECT coalesce(e.{dim}, '') AS k, COUNT(*) AS c
+             FROM log_events e {where_sql}
              GROUP BY k ORDER BY c DESC LIMIT 50"
         );
         let mut stmt = conn
@@ -246,10 +373,17 @@ pub fn search(
         .map(|e| e.to_json(include_raw, fields.as_deref()))
         .collect();
 
+    let hint = if out.is_empty() {
+        Some(empty_search_hint(&filters, req.text.as_deref()))
+    } else {
+        None
+    };
+
     Ok(SearchResponse {
         count: out.len(),
         events: out,
         next_cursor,
+        hint,
     })
 }
 
@@ -464,18 +598,84 @@ fn push_in(
 }
 
 fn fts_query(text: &str) -> String {
-    text.split_whitespace()
-        .map(|t| {
-            let cleaned: String = t.chars().filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_').collect();
+    let raw: Vec<String> = text
+        .split_whitespace()
+        .filter_map(|t| {
+            let upper = t.to_ascii_uppercase();
+            if matches!(upper.as_str(), "OR" | "AND" | "NOT") {
+                return Some(upper);
+            }
+            let cleaned: String = t
+                .chars()
+                .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+                .collect();
             if cleaned.is_empty() {
-                String::new()
+                None
             } else {
-                format!("\"{cleaned}\"")
+                Some(format!("\"{cleaned}\""))
             }
         })
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>()
-        .join(" AND ")
+        .collect();
+
+    let mut out = Vec::new();
+    let mut prev_was_term = false;
+    for tok in raw {
+        let is_bin_op = tok == "OR" || tok == "AND";
+        if is_bin_op {
+            if !prev_was_term {
+                continue;
+            }
+            out.push(tok);
+            prev_was_term = false;
+            continue;
+        }
+        if tok == "NOT" {
+            if prev_was_term {
+                out.push("AND".into());
+            }
+            out.push(tok);
+            prev_was_term = false;
+            continue;
+        }
+        if prev_was_term {
+            out.push("AND".into());
+        }
+        out.push(tok);
+        prev_was_term = true;
+    }
+    while out
+        .last()
+        .is_some_and(|s| matches!(s.as_str(), "OR" | "AND" | "NOT"))
+    {
+        out.pop();
+    }
+    out.join(" ")
+}
+
+fn empty_search_hint(filters: &Filters, text: Option<&str>) -> String {
+    let mut parts = Vec::new();
+    if let Some(v) = &filters.ts_from {
+        parts.push(format!("ts_from={v}"));
+    }
+    if let Some(v) = &filters.ts_to {
+        parts.push(format!("ts_to={v}"));
+    }
+    if let Some(hosts) = &filters.hosts {
+        if !hosts.is_empty() {
+            parts.push(format!("hosts={}", hosts.join(",")));
+        }
+    }
+    if let Some(t) = text.map(str::trim).filter(|s| !s.is_empty()) {
+        parts.push(format!("text={t}"));
+    }
+    let scope = if parts.is_empty() {
+        "no filters".to_string()
+    } else {
+        parts.join(" ")
+    };
+    format!(
+        "No matches ({scope}). Widen since (e.g. 24h), drop hosts, or simplify keywords. FTS supports OR/AND."
+    )
 }
 
 fn semantic_boost(
@@ -955,4 +1155,78 @@ pub fn recent_events(db: &Db, limit: usize) -> AppResult<Vec<Value>> {
         out.push(r.map_err(|e| AppError::Internal(e.into()))?);
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fts_or_and_not() {
+        assert_eq!(fts_query("error OR fail"), "\"error\" OR \"fail\"");
+        assert_eq!(
+            fts_query("error OR fail OR exception"),
+            "\"error\" OR \"fail\" OR \"exception\""
+        );
+        assert_eq!(fts_query("connection timeout"), "\"connection\" AND \"timeout\"");
+        assert_eq!(fts_query("OR error"), "\"error\"");
+        assert_eq!(fts_query("error AND"), "\"error\"");
+        assert_eq!(fts_query("NOT timeout"), "NOT \"timeout\"");
+    }
+
+    #[test]
+    fn parse_since_units() {
+        let now = Utc::now();
+        let h = parse_since("1h", now).unwrap();
+        assert!((now - h - Duration::hours(1)).num_seconds().abs() < 2);
+        let m = parse_since("15m", now).unwrap();
+        assert!((now - m - Duration::minutes(15)).num_seconds().abs() < 2);
+        let d = parse_since("7d", now).unwrap();
+        assert!((now - d - Duration::days(7)).num_seconds().abs() < 2);
+        assert!(parse_since("nope", now).is_err());
+        assert!(parse_since("0h", now).is_err());
+        assert!(parse_since("31d", now).is_err());
+    }
+
+    #[test]
+    fn resolve_time_defaults_last_hour() {
+        let f = resolve_time(Filters::default(), true).unwrap();
+        assert!(f.ts_from.is_some());
+        assert!(f.ts_to.is_some());
+        let from = DateTime::parse_from_rfc3339(f.ts_from.as_ref().unwrap())
+            .unwrap()
+            .with_timezone(&Utc);
+        let to = DateTime::parse_from_rfc3339(f.ts_to.as_ref().unwrap())
+            .unwrap()
+            .with_timezone(&Utc);
+        let delta = to - from;
+        assert!((delta - Duration::hours(1)).num_seconds().abs() < 3);
+    }
+
+    #[test]
+    fn resolve_time_since() {
+        let f = resolve_time(
+            Filters {
+                since: Some("24h".into()),
+                ..Default::default()
+            },
+            true,
+        )
+        .unwrap();
+        let from = DateTime::parse_from_rfc3339(f.ts_from.as_ref().unwrap())
+            .unwrap()
+            .with_timezone(&Utc);
+        let to = DateTime::parse_from_rfc3339(f.ts_to.as_ref().unwrap())
+            .unwrap()
+            .with_timezone(&Utc);
+        assert!((to - from - Duration::hours(24)).num_seconds().abs() < 3);
+        assert!(f.since.is_none());
+    }
+
+    #[test]
+    fn resolve_time_skips_default_when_false() {
+        let f = resolve_time(Filters::default(), false).unwrap();
+        assert!(f.ts_from.is_none());
+        assert!(f.ts_to.is_none());
+    }
 }

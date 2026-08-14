@@ -90,7 +90,7 @@ async fn handle_message(state: &AppState, msg: &Value) -> AppResult<Option<Value
                 "name": "vector-collector",
                 "version": env!("CARGO_PKG_VERSION")
             },
-            "instructions": "Search logs from Vector Collector. Preferred loop: logs_facets → logs_search → logs_context. Translate the user's natural language into filters + text keywords. Use semantic_query when embeddings are enabled and keywords are unclear."
+            "instructions": "Search logs from Vector Collector. Preferred loop: logs_schema → logs_facets → logs_search → logs_context. Use filters.since (15m, 1h, 24h) instead of RFC3339 when possible. If no time is set, the last 1 hour is used. Translate the user's question into filters + FTS text (OR/AND supported). Use semantic_query only when embeddings are enabled and keywords are unclear."
         }),
         "ping" => json!({}),
         "tools/list" => json!({ "tools": tool_defs() }),
@@ -120,30 +120,31 @@ async fn handle_message(state: &AppState, msg: &Value) -> AppResult<Option<Value
 }
 
 fn tool_defs() -> Vec<Value> {
+    let filters = query::filters_input_schema();
     vec![
         tool(
             "logs_schema",
-            "Describe log fields, filters, and the recommended query loop for investigating logs across machines.",
+            "Describe log fields, registered hosts, filters, and the recommended query loop. Call this first.",
             json!({"type": "object", "properties": {}}),
         ),
         tool(
             "logs_facets",
-            "Return top counts for host/container/image/stream/agent_id under optional filters. Call this first to narrow scope from a natural-language question.",
+            "Return top counts for host/container/image/stream/agent_id under optional filters. Default time window is the last 1 hour. Prefer filters.since (e.g. 1h).",
             json!({
                 "type": "object",
                 "properties": {
-                    "filters": { "type": "object", "description": "ts_from, ts_to, hosts, containers, streams, agent_ids, trace_id, request_id, label_equals" }
+                    "filters": filters
                 }
             }),
         ),
         tool(
             "logs_search",
-            "Search logs with structured filters and/or keyword text (and optional semantic_query). Returns compact truncated messages. Use after facets.",
+            "Search logs with structured filters and/or keyword text (FTS supports OR/AND). Default time window is the last 1 hour. Returns compact truncated messages. Use after facets.",
             json!({
                 "type": "object",
                 "properties": {
-                    "filters": { "type": "object" },
-                    "text": { "type": "string", "description": "Keyword/full-text query derived from the user question" },
+                    "filters": filters.clone(),
+                    "text": { "type": "string", "description": "Keyword/full-text query. Adjacent words are AND; use OR between alternatives, e.g. error OR fail OR exception" },
                     "semantic_query": { "type": "string", "description": "Natural language semantic search when embeddings are configured" },
                     "limit": { "type": "integer" },
                     "cursor": { "type": "string" }
@@ -185,16 +186,21 @@ fn tool(name: &str, description: &str, input_schema: Value) -> Value {
 
 async fn call_tool(state: &AppState, name: &str, args: Value) -> AppResult<Value> {
     let payload = match name {
-        "logs_schema" => query::schema_document(state.settings.read().embeddings_enabled()),
+        "logs_schema" => query::schema_document(
+            &state.db,
+            state.settings.read().embeddings_enabled(),
+        )?,
         "logs_facets" => {
             let filters: Filters =
                 serde_json::from_value(args.get("filters").cloned().unwrap_or(json!({})))
                     .map_err(|e| AppError::BadRequest(e.to_string()))?;
+            let filters = query::resolve_time(filters, true)?;
             query::facets(&state.db, &filters)?
         }
         "logs_search" => {
-            let req: SearchRequest =
+            let mut req: SearchRequest =
                 serde_json::from_value(args).map_err(|e| AppError::BadRequest(e.to_string()))?;
+            req.filters = Some(query::resolve_time(req.filters.take().unwrap_or_default(), true)?);
             let emb_client = state.embeddings.read().clone();
             let emb = if let (Some(q), Some(client)) = (
                 req.semantic_query.as_ref().filter(|s| !s.trim().is_empty()),
