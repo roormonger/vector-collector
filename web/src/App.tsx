@@ -1,17 +1,27 @@
 import { useEffect, useState, type ReactNode } from 'react'
+import { LayoutDashboard, LogOut, Menu, Plug, Server, Settings, X } from 'lucide-react'
 import {
   api,
   type Agent,
   type AgentConnectInfo,
   type McpConnectInfo,
   type RecentEvent,
-  type Settings,
+  type Settings as SettingsData,
   type SettingsUpdate,
   type Stats,
 } from './lib/api'
-import { Badge, Button, Card, Input, Label, Select } from './components/ui'
+import { Badge, Button, Card, Input, Label, Select, Textarea } from './components/ui'
+import { generateConfig } from './lib/vectorPresets'
+import { cn } from './lib/utils'
 
-type Tab = 'overview' | 'hosts' | 'mcp' | 'settings'
+type Tab = 'overview' | 'hosts' | 'connect' | 'settings'
+
+const NAV: { id: Tab; label: string; icon: typeof LayoutDashboard }[] = [
+  { id: 'overview', label: 'Overview', icon: LayoutDashboard },
+  { id: 'hosts', label: 'Hosts', icon: Server },
+  { id: 'connect', label: 'Connect', icon: Plug },
+  { id: 'settings', label: 'Settings', icon: Settings },
+]
 
 export default function App() {
   const [user, setUser] = useState<string | null>(null)
@@ -34,51 +44,122 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen">
-      <header className="sticky top-0 z-20 border-b border-[var(--border)] bg-[var(--bg)]/90 backdrop-blur-md">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
-          <div className="flex min-w-0 flex-wrap items-center gap-3 sm:gap-5">
-            <div className="min-w-0">
-              <p className="truncate text-base font-semibold tracking-tight">Vector Collector</p>
-              <p className="truncate text-xs text-[var(--text-muted)]">{user}</p>
-            </div>
-            <nav className="flex flex-wrap gap-1">
-              {(
-                [
-                  ['overview', 'Overview'],
-                  ['hosts', 'Hosts'],
-                  ['mcp', 'MCP'],
-                  ['settings', 'Settings'],
-                ] as const
-              ).map(([id, label]) => (
-                <Button
-                  key={id}
-                  variant={tab === id ? 'default' : 'ghost'}
-                  onClick={() => setTab(id)}
-                >
-                  {label}
-                </Button>
-              ))}
-            </nav>
-          </div>
-          <Button
-            variant="ghost"
-            onClick={async () => {
-              await api.logout()
-              setUser(null)
+    <AdminShell
+      user={user}
+      tab={tab}
+      onTab={setTab}
+      onLogout={async () => {
+        await api.logout()
+        setUser(null)
+      }}
+    >
+      {tab === 'overview' && <Overview />}
+      {tab === 'hosts' && <HostsPanel />}
+      {tab === 'connect' && <ConnectPanel />}
+      {tab === 'settings' && <SettingsPanel />}
+    </AdminShell>
+  )
+}
+
+function AdminShell({
+  user,
+  tab,
+  onTab,
+  onLogout,
+  children,
+}: {
+  user: string
+  tab: Tab
+  onTab: (tab: Tab) => void
+  onLogout: () => void
+  children: ReactNode
+}) {
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const title = NAV.find((item) => item.id === tab)?.label ?? ''
+
+  const sidebar = (onNavigate: () => void) => (
+    <>
+      <div className="flex items-center gap-2 px-4 py-4">
+        <img src="/vc-icon.png" alt="" className="size-6 shrink-0 rounded-sm" />
+        <p className="text-sm font-semibold tracking-tight">Vector Collector</p>
+      </div>
+      <nav className="flex flex-1 flex-col gap-0.5 px-2">
+        {NAV.map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            type="button"
+            className={cn(
+              'flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm',
+              tab === id
+                ? 'bg-[var(--bg-muted)] text-[var(--text)]'
+                : 'text-[var(--text-muted)] hover:bg-[var(--bg-muted)]/50 hover:text-[var(--text)]',
+            )}
+            onClick={() => {
+              onTab(id)
+              onNavigate()
             }}
           >
-            Log out
-          </Button>
-        </div>
-      </header>
+            <Icon className="size-4 shrink-0" />
+            {label}
+          </button>
+        ))}
+      </nav>
+      <div className="mt-auto border-t border-[var(--border)] px-3 py-3">
+        <p className="truncate px-1 text-xs text-[var(--text-muted)]">{user}</p>
+        <button
+          type="button"
+          className="mt-1 flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm text-[var(--text-muted)] hover:bg-[var(--bg-muted)]/50 hover:text-[var(--text)]"
+          onClick={onLogout}
+        >
+          <LogOut className="size-4 shrink-0" />
+          Log out
+        </button>
+      </div>
+    </>
+  )
 
-      <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
-        {tab === 'overview' && <Overview />}
-        {tab === 'hosts' && <HostsPanel />}
-        {tab === 'mcp' && <McpPanel />}
-        {tab === 'settings' && <SettingsPanel />}
-      </main>
+  return (
+    <div className="flex h-svh overflow-hidden">
+      <aside className="hidden h-svh w-56 shrink-0 flex-col overflow-hidden border-r border-[var(--border)] bg-[var(--bg-elevated)] md:flex">
+        {sidebar(() => undefined)}
+      </aside>
+
+      {drawerOpen && (
+        <div className="fixed inset-0 z-40 md:hidden">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/50"
+            aria-label="Close menu"
+            onClick={() => setDrawerOpen(false)}
+          />
+          <aside className="relative flex h-full w-56 flex-col bg-[var(--bg-elevated)] shadow-lg">
+            <button
+              type="button"
+              className="absolute right-2 top-3 rounded-md p-1 text-[var(--text-muted)] hover:bg-[var(--bg-muted)]"
+              aria-label="Close menu"
+              onClick={() => setDrawerOpen(false)}
+            >
+              <X className="size-4" />
+            </button>
+            {sidebar(() => setDrawerOpen(false))}
+          </aside>
+        </div>
+      )}
+
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <header className="flex h-14 shrink-0 items-center gap-3 border-b border-[var(--border)] px-4">
+          <button
+            type="button"
+            className="rounded-md p-1.5 text-[var(--text-muted)] hover:bg-[var(--bg-muted)] md:hidden"
+            aria-label="Open menu"
+            onClick={() => setDrawerOpen(true)}
+          >
+            <Menu className="size-5" />
+          </button>
+          <h1 className="text-lg font-medium">{title}</h1>
+        </header>
+        <main className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6">{children}</main>
+      </div>
     </div>
   )
 }
@@ -393,10 +474,11 @@ function PublicUrlHint({ url }: { url: string | null }) {
 function HostsPanel() {
   const [hosts, setHosts] = useState<Agent[]>([])
   const [error, setError] = useState<string | null>(null)
-  const [wizardOpen, setWizardOpen] = useState(false)
-  const [viewHost, setViewHost] = useState<Agent | null>(null)
   const [removeHost, setRemoveHost] = useState<Agent | null>(null)
-  const publicBaseUrl = usePublicBaseUrl()
+  const [name, setName] = useState('')
+  const [password, setPassword] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [createdMsg, setCreatedMsg] = useState<string | null>(null)
 
   const reload = () =>
     api
@@ -420,23 +502,63 @@ function HostsPanel() {
           <div>
             <h2 className="text-lg font-medium">Hosts</h2>
             <p className="text-sm text-[var(--text-muted)]">
-              Register a host per machine. That creates a dedicated ingest API key and ready-to-run Vector
-              config (Docker, Linux, Windows, macOS, or files). The name is stored as the log{' '}
-              <code className="text-xs">host</code> field. Online means Vector on that machine has
-              heartbeated or sent logs within ~2 minutes. Removing a host revokes its key; stored logs stay
-              until retention trims them. On Vector 0.57+, keep{' '}
-              <code className="text-xs">VECTOR_DANGEROUSLY_ALLOW_ENV_VAR_INTERPOLATION=true</code> when using
-              env-based presets.
+              Register a machine name and ingest key. The name is stored as the log{' '}
+              <code className="text-xs">host</code> field. Copy Vector config on{' '}
+              <strong>Connect</strong>. Online means that machine heartbeated or sent logs within ~2
+              minutes. Remove revokes the ingest key; stored logs stay until retention.
             </p>
-            <PublicUrlHint url={publicBaseUrl} />
           </div>
-          <div className="flex gap-2">
-            <Button variant="ghost" onClick={reload}>
-              Refresh
-            </Button>
-            <Button onClick={() => setWizardOpen(true)}>Add host</Button>
-          </div>
+          <Button variant="ghost" onClick={reload}>
+            Refresh
+          </Button>
         </div>
+
+        <form
+          className="mb-4 flex flex-wrap items-end gap-2 border-b border-[var(--border)] pb-4"
+          onSubmit={async (e) => {
+            e.preventDefault()
+            if (!name.trim() || !password || busy) return
+            setBusy(true)
+            setError(null)
+            setCreatedMsg(null)
+            try {
+              const res = await api.createAgent({ password, name: name.trim() })
+              setName('')
+              setPassword('')
+              setCreatedMsg(
+                `Created ${res.agent.host ?? res.agent.name}. Copy Vector yaml on Connect.`,
+              )
+              reload()
+            } catch (err) {
+              setError(err instanceof Error ? err.message : 'Failed to create host')
+            } finally {
+              setBusy(false)
+            }
+          }}
+        >
+          <div className="min-w-[10rem] flex-1">
+            <Label>Host name</Label>
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="app-server-1"
+            />
+          </div>
+          <div className="min-w-[10rem] flex-1">
+            <Label>Admin password</Label>
+            <Input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="current-password"
+            />
+          </div>
+          <Button type="submit" disabled={!name.trim() || !password || busy}>
+            {busy ? 'Creating…' : 'Create'}
+          </Button>
+        </form>
+
+        {createdMsg && <p className="mb-3 text-sm text-[var(--accent)]">{createdMsg}</p>}
         {error && <p className="mb-3 text-sm text-[var(--danger)]">{error}</p>}
         <div className="space-y-3">
           {hosts.map((a) => (
@@ -455,11 +577,6 @@ function HostsPanel() {
                   <span className={`rounded-full px-2 py-0.5 text-xs capitalize ${statusStyles(a.status)}`}>
                     {a.status}
                   </span>
-                  {a.has_connect_secret && (
-                    <Button variant="ghost" onClick={() => setViewHost(a)}>
-                      View Vector config
-                    </Button>
-                  )}
                   <Button variant="danger" onClick={() => setRemoveHost(a)}>
                     Remove
                   </Button>
@@ -481,22 +598,11 @@ function HostsPanel() {
             </div>
           ))}
           {hosts.length === 0 && (
-            <p className="text-[var(--text-muted)]">
-              No hosts yet — add one to create an ingest API key and download Vector yaml for that machine.
-            </p>
+            <p className="text-[var(--text-muted)]">No hosts yet — create a name and ingest key above.</p>
           )}
         </div>
       </Card>
 
-      {wizardOpen && (
-        <HostWizardModal
-          onClose={() => setWizardOpen(false)}
-          onCreated={() => {
-            reload()
-          }}
-        />
-      )}
-      {viewHost && <HostConnectModal host={viewHost} onClose={() => setViewHost(null)} />}
       {removeHost && (
         <RemoveHostModal
           host={removeHost}
@@ -599,6 +705,63 @@ function PlatformPicker({
   )
 }
 
+function downloadText(filename: string, value: string) {
+  const blob = new Blob([value], { type: 'text/plain;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+function SnippetBox({
+  label,
+  value,
+  filename,
+  heightClass = 'h-72',
+}: {
+  label: string
+  value: string
+  filename?: string
+  heightClass?: string
+}) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <Label>{label}</Label>
+        <div className="flex gap-1">
+          <Button
+            variant="ghost"
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(value)
+                setCopied(true)
+              } catch {
+                setCopied(false)
+              }
+            }}
+          >
+            {copied ? 'Copied' : 'Copy'}
+          </Button>
+          {filename && (
+            <Button variant="ghost" onClick={() => downloadText(filename, value)}>
+              Download
+            </Button>
+          )}
+        </div>
+      </div>
+      <Textarea
+        readOnly
+        spellCheck={false}
+        value={value}
+        className={cn(heightClass, 'resize-none overflow-y-scroll whitespace-pre')}
+      />
+    </div>
+  )
+}
+
 function CopyBlocks({
   tokenLabel,
   yamlLabel,
@@ -614,7 +777,7 @@ function CopyBlocks({
   onPlatformChange?: (id: string) => void
   yamlFilename?: string
 }) {
-  const [copied, setCopied] = useState<string | null>(null)
+  const [copiedToken, setCopiedToken] = useState(false)
   const presets = 'presets' in info ? info.presets : undefined
   const activePlatform = platform ?? ('platform' in info ? info.platform : undefined) ?? 'docker'
   const activePreset = presets?.find((p) => p.id === activePlatform)
@@ -627,30 +790,23 @@ function CopyBlocks({
   const downloadName =
     yamlFilename ??
     (presets ? `vector-collector-${activePlatform}.yaml` : 'vector-collector.yaml')
-  const copy = async (label: string, value: string) => {
-    try {
-      await navigator.clipboard.writeText(value)
-      setCopied(label)
-    } catch {
-      setCopied(null)
-    }
-  }
-  const download = (filename: string, value: string) => {
-    const blob = new Blob([value], { type: 'text/yaml;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = filename
-    a.click()
-    URL.revokeObjectURL(url)
-  }
   return (
     <div className="space-y-3">
       <div>
         <div className="mb-1 flex items-center justify-between gap-2">
           <Label>{tokenLabel}</Label>
-          <Button variant="ghost" onClick={() => copy('token', info.token)}>
-            {copied === 'token' ? 'Copied' : 'Copy'}
+          <Button
+            variant="ghost"
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(info.token)
+                setCopiedToken(true)
+              } catch {
+                setCopiedToken(false)
+              }
+            }}
+          >
+            {copiedToken ? 'Copied' : 'Copy'}
           </Button>
         </div>
         <code className="block break-all rounded-md bg-[var(--bg)] px-2 py-2 text-xs">{info.token}</code>
@@ -663,20 +819,7 @@ function CopyBlocks({
         />
       )}
       {!inlineToken && (
-        <div>
-          <div className="mb-1 flex items-center justify-between gap-2">
-            <Label>Environment</Label>
-            <div className="flex gap-1">
-              <Button variant="ghost" onClick={() => copy('env', env)}>
-                {copied === 'env' ? 'Copied' : 'Copy'}
-              </Button>
-              <Button variant="ghost" onClick={() => download('vector-collector.env', env)}>
-                Download
-              </Button>
-            </div>
-          </div>
-          <pre className="overflow-x-auto rounded-md bg-[var(--bg)] p-2 text-xs">{env}</pre>
-        </div>
+        <SnippetBox label="Environment" value={env} filename="vector-collector.env" heightClass="h-28" />
       )}
       {inlineToken && (
         <p className="text-sm text-[var(--text-muted)]">
@@ -684,209 +827,8 @@ function CopyBlocks({
           flag required. Treat the downloaded file as secret.
         </p>
       )}
-      <div>
-        <div className="mb-1 flex items-center justify-between gap-2">
-          <Label>{yamlLabel}</Label>
-          <div className="flex gap-1">
-            <Button variant="ghost" onClick={() => copy('yaml', yaml)}>
-              {copied === 'yaml' ? 'Copied' : 'Copy'}
-            </Button>
-            <Button variant="ghost" onClick={() => download(downloadName, yaml)}>
-              Download
-            </Button>
-          </div>
-        </div>
-        <pre className="max-h-72 overflow-auto rounded-md bg-[var(--bg)] p-2 text-xs">{yaml}</pre>
-      </div>
+      <SnippetBox label={yamlLabel} value={yaml} filename={downloadName} />
     </div>
-  )
-}
-
-function HostWizardModal({
-  onClose,
-  onCreated,
-}: {
-  onClose: () => void
-  onCreated: () => void
-}) {
-  const [step, setStep] = useState<'password' | 'name' | 'done'>('password')
-  const [password, setPassword] = useState('')
-  const [name, setName] = useState('')
-  const [platform, setPlatform] = useState('docker')
-  const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [info, setInfo] = useState<(AgentConnectInfo & { agent: Agent }) | null>(null)
-
-  return (
-    <ModalShell title="Add host" onClose={onClose} wide={step === 'done'}>
-      {step === 'password' && (
-        <form
-          className="space-y-3"
-          onSubmit={(e) => {
-            e.preventDefault()
-            setError(null)
-            if (!password) return
-            setStep('name')
-          }}
-        >
-          <p className="text-sm text-[var(--text-muted)]">Confirm your admin password to continue.</p>
-          <div>
-            <Label>Admin password</Label>
-            <Input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete="current-password"
-              autoFocus
-            />
-          </div>
-          {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
-          <Button type="submit" disabled={!password || busy}>
-            Continue
-          </Button>
-        </form>
-      )}
-      {step === 'name' && (
-        <form
-          className="space-y-3"
-          onSubmit={async (e) => {
-            e.preventDefault()
-            if (!name.trim() || busy) return
-            setBusy(true)
-            setError(null)
-            try {
-              const res = await api.createAgent({
-                password,
-                name: name.trim(),
-                platform,
-              })
-              setInfo(res)
-              setPlatform(res.platform ?? platform)
-              setStep('done')
-              onCreated()
-            } catch (err) {
-              setError(err instanceof Error ? err.message : 'Failed')
-              if (err instanceof Error && err.message === 'unauthorized') {
-                setStep('password')
-              }
-            } finally {
-              setBusy(false)
-            }
-          }}
-        >
-          <p className="text-sm text-[var(--text-muted)]">
-            This creates a dedicated ingest API key. The name is forced as the log{' '}
-            <code className="text-xs">host</code> on every event (e.g.{' '}
-            <code className="text-xs">app-server-1</code>).
-          </p>
-          <div>
-            <Label>Host name</Label>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="app-server-1"
-              autoFocus
-            />
-          </div>
-          <PlatformPicker
-            value={platform}
-            onChange={setPlatform}
-            description={PLATFORM_OPTIONS.find((p) => p.id === platform)?.description}
-          />
-          <p className="text-sm text-[var(--text-muted)]">
-            You can switch Vector presets after create — same ingest key, different yaml.
-          </p>
-          {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
-          <div className="flex gap-2">
-            <Button type="button" variant="ghost" onClick={() => setStep('password')}>
-              Back
-            </Button>
-            <Button type="submit" disabled={!name.trim() || busy}>
-              {busy ? 'Creating…' : 'Create ingest key'}
-            </Button>
-          </div>
-        </form>
-      )}
-      {step === 'done' && info && (
-        <div className="space-y-3">
-          <p className="text-sm text-[var(--accent)]">
-            Host <strong>{info.agent.name}</strong> registered with a dedicated ingest key. Pick a platform
-            preset and install Vector on that machine with the config below.
-          </p>
-          <CopyBlocks
-            tokenLabel="Ingest API key"
-            yamlLabel="Vector yaml"
-            info={info}
-            platform={platform}
-            onPlatformChange={setPlatform}
-          />
-          <Button onClick={onClose}>Done</Button>
-        </div>
-      )}
-    </ModalShell>
-  )
-}
-
-function HostConnectModal({ host, onClose }: { host: Agent; onClose: () => void }) {
-  const [password, setPassword] = useState('')
-  const [platform, setPlatform] = useState('docker')
-  const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [info, setInfo] = useState<AgentConnectInfo | null>(null)
-
-  return (
-    <ModalShell title={`Vector config — ${host.host}`} onClose={onClose} wide={!!info}>
-      {!info ? (
-        <form
-          className="space-y-3"
-          onSubmit={async (e) => {
-            e.preventDefault()
-            if (!password || busy) return
-            setBusy(true)
-            setError(null)
-            try {
-              const res = await api.agentConnectInfo(host.id, password, platform)
-              setInfo(res)
-              setPlatform(res.platform ?? platform)
-            } catch (err) {
-              setError(err instanceof Error ? err.message : 'Failed')
-            } finally {
-              setBusy(false)
-            }
-          }}
-        >
-          <p className="text-sm text-[var(--text-muted)]">
-            Re-enter your admin password to reveal this host’s ingest API key and Vector yaml.
-          </p>
-          <div>
-            <Label>Admin password</Label>
-            <Input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete="current-password"
-              autoFocus
-            />
-          </div>
-          <PlatformPicker value={platform} onChange={setPlatform} />
-          {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
-          <Button type="submit" disabled={!password || busy}>
-            {busy ? 'Checking…' : 'Reveal'}
-          </Button>
-        </form>
-      ) : (
-        <div className="space-y-3">
-          <CopyBlocks
-            tokenLabel="Ingest API key"
-            yamlLabel="Vector yaml"
-            info={info}
-            platform={platform}
-            onPlatformChange={setPlatform}
-          />
-          <Button onClick={onClose}>Done</Button>
-        </div>
-      )}
-    </ModalShell>
   )
 }
 
@@ -950,45 +892,114 @@ function RemoveHostModal({
   )
 }
 
-function McpPanel() {
+function ConnectPanel() {
+  const [hosts, setHosts] = useState<Agent[]>([])
+  const [hostId, setHostId] = useState('')
   const [password, setPassword] = useState('')
+  const [unlockedPassword, setUnlockedPassword] = useState<string | null>(null)
+  const [mcp, setMcp] = useState<McpConnectInfo | null>(null)
+  const [vector, setVector] = useState<AgentConnectInfo | null>(null)
+  const [platform, setPlatform] = useState('docker')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [info, setInfo] = useState<McpConnectInfo | null>(null)
-  const [unlockedPassword, setUnlockedPassword] = useState<string | null>(null)
   const publicBaseUrl = usePublicBaseUrl()
+  const base = (publicBaseUrl ?? 'http://localhost:8080').replace(/\/$/, '')
+  const redacted = 'lk_••••'
+  const redactedVector = generateConfig(base, redacted, platform)
+
+  useEffect(() => {
+    api
+      .agents()
+      .then((rows) => {
+        setHosts(rows)
+        setHostId((current) => {
+          if (current && rows.some((h) => h.id === current)) return current
+          return rows[0]?.id ?? ''
+        })
+      })
+      .catch(console.error)
+  }, [])
+
+  useEffect(() => {
+    if (!unlockedPassword || !hostId) {
+      setVector(null)
+      return
+    }
+    let cancelled = false
+    api
+      .agentConnectInfo(hostId, unlockedPassword, platform)
+      .then((info) => {
+        if (!cancelled) setVector(info)
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load Vector config')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [unlockedPassword, hostId, platform])
+
+  const redactedMcpYaml = `mcp_servers:
+  vector_collector:
+    url: "${base}/mcp"
+    headers:
+      Authorization: "Bearer ${redacted}"
+    timeout: 120
+    tools:
+      resources: false
+      prompts: false
+`
 
   return (
-    <Card className="space-y-4">
-      <div>
-        <h2 className="text-lg font-medium">MCP</h2>
-        <p className="mt-1 text-sm text-[var(--text-muted)]">
-          Reveal the query token, MCP client config, and OpenAPI URL for Open WebUI Tool Servers. After
-          unlocking you can rotate the token to a new random value (old token stops working immediately).
-        </p>
-        <PublicUrlHint url={publicBaseUrl} />
-      </div>
-
-      {!info ? (
+    <div className="space-y-4">
+      <Card className="space-y-3">
+        <div>
+          <p className="text-sm text-[var(--text-muted)]">
+            Copy Vector yaml for a host (ingest key), MCP yaml, and the query-only OpenAPI URL. Keys stay
+            hidden until you enter the admin password. Leaving this page hides them again. MCP and OpenAPI
+            use one collector-wide query token; Vector uses the selected host’s ingest key.
+          </p>
+          <PublicUrlHint url={publicBaseUrl} />
+        </div>
         <form
-          className="space-y-3"
+          className="flex flex-wrap items-end gap-2"
           onSubmit={async (e) => {
             e.preventDefault()
             if (!password || busy) return
             setBusy(true)
             setError(null)
             try {
-              const res = await api.mcpConnectInfo(password)
-              setInfo(res)
+              const info = await api.mcpConnectInfo(password)
+              setMcp(info)
               setUnlockedPassword(password)
             } catch (err) {
               setError(err instanceof Error ? err.message : 'Failed')
+              setMcp(null)
+              setUnlockedPassword(null)
             } finally {
               setBusy(false)
             }
           }}
         >
-          <div>
+          <div className="min-w-[10rem] flex-1">
+            <Label>Host</Label>
+            <Select
+              value={hostId}
+              onChange={(e) => setHostId(e.target.value)}
+              disabled={hosts.length === 0}
+            >
+              {hosts.length === 0 ? (
+                <option value="">No hosts — add one first</option>
+              ) : (
+                hosts.map((h) => (
+                  <option key={h.id} value={h.id}>
+                    {h.host || h.name}
+                  </option>
+                ))
+              )}
+            </Select>
+          </div>
+          <div className="min-w-[10rem] flex-1">
             <Label>Admin password</Label>
             <Input
               type="password"
@@ -997,16 +1008,60 @@ function McpPanel() {
               autoComplete="current-password"
             />
           </div>
-          {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
           <Button type="submit" disabled={!password || busy}>
-            {busy ? 'Checking…' : 'Reveal MCP token'}
+            {busy ? 'Checking…' : mcp ? 'Refresh' : 'Reveal keys'}
           </Button>
         </form>
-      ) : (
-        <div className="space-y-3">
-          <CopyBlocks tokenLabel="Query token" yamlLabel="MCP client config" info={info} yamlFilename="mcp-vector-collector.yaml" />
-          <OpenApiUrlBlock url={info.openapi_url} />
-          <div className="flex flex-wrap gap-2">
+        {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
+      </Card>
+
+      <Card className="space-y-3">
+        <h2 className="text-lg font-medium">Vector</h2>
+        {!hostId ? (
+          <p className="text-sm text-[var(--text-muted)]">Add a host on Hosts, then select it above.</p>
+        ) : vector && mcp ? (
+          <CopyBlocks
+            tokenLabel="Ingest API key"
+            yamlLabel="Vector yaml"
+            info={vector}
+            platform={platform}
+            onPlatformChange={setPlatform}
+          />
+        ) : (
+          <>
+            <PlatformPicker
+              value={platform}
+              onChange={setPlatform}
+              description={PLATFORM_OPTIONS.find((p) => p.id === platform)?.description}
+            />
+            <p className="text-sm text-[var(--text-muted)]">Enter the admin password to reveal the ingest key.</p>
+            {!redactedVector.inlineToken && (
+              <SnippetBox
+                label="Environment"
+                value={redactedVector.env}
+                filename="vector-collector.env"
+                heightClass="h-28"
+              />
+            )}
+            <SnippetBox
+              label="Vector yaml"
+              value={redactedVector.yaml}
+              filename={`vector-collector-${platform}.yaml`}
+            />
+          </>
+        )}
+      </Card>
+
+      <Card className="space-y-3">
+        <h2 className="text-lg font-medium">MCP</h2>
+        {mcp ? (
+          <>
+            <CopyBlocks
+              tokenLabel="Query token"
+              yamlLabel="MCP client config"
+              info={mcp}
+              yamlFilename="mcp-vector-collector.yaml"
+            />
             <Button
               variant="danger"
               disabled={busy || !unlockedPassword}
@@ -1015,7 +1070,7 @@ function McpPanel() {
                 setBusy(true)
                 setError(null)
                 try {
-                  setInfo(await api.mcpRotate(unlockedPassword))
+                  setMcp(await api.mcpRotate(unlockedPassword))
                 } catch (e) {
                   setError(e instanceof Error ? e.message : 'Failed to rotate')
                 } finally {
@@ -1025,36 +1080,39 @@ function McpPanel() {
             >
               {busy ? 'Rotating…' : 'Generate new token'}
             </Button>
-            <Button
-              variant="ghost"
-              onClick={() => {
-                setInfo(null)
-                setUnlockedPassword(null)
-                setPassword('')
-                setError(null)
-              }}
-            >
-              Hide
-            </Button>
-          </div>
-          {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
-        </div>
-      )}
-    </Card>
+          </>
+        ) : (
+          <>
+            <p className="text-sm text-[var(--text-muted)]">Collector-wide query token — same for every host.</p>
+            <SnippetBox
+              label="MCP client config"
+              value={redactedMcpYaml}
+              filename="mcp-vector-collector.yaml"
+            />
+          </>
+        )}
+      </Card>
+
+      <Card className="space-y-3">
+        <OpenApiConnectBlock baseUrl={base} token={mcp?.token ?? null} />
+      </Card>
+    </div>
   )
 }
 
-function OpenApiUrlBlock({ url }: { url: string }) {
+const OPENAPI_SPEC_PATH = '/api-docs/query.json'
+
+function CopyField({ label, value }: { label: string; value: string }) {
   const [copied, setCopied] = useState(false)
   return (
     <div>
       <div className="mb-1 flex items-center justify-between gap-2">
-        <Label>OpenAPI (Open WebUI Tool Servers)</Label>
+        <Label>{label}</Label>
         <Button
           variant="ghost"
           onClick={async () => {
             try {
-              await navigator.clipboard.writeText(url)
+              await navigator.clipboard.writeText(value)
               setCopied(true)
             } catch {
               setCopied(false)
@@ -1064,17 +1122,77 @@ function OpenApiUrlBlock({ url }: { url: string }) {
           {copied ? 'Copied' : 'Copy'}
         </Button>
       </div>
-      <code className="block break-all rounded-md bg-[var(--bg)] px-2 py-2 text-xs">{url}</code>
-      <p className="mt-1 text-sm text-[var(--text-muted)]">
-        Point Open WebUI Tool Servers here and use the same query bearer token. Do not use{' '}
+      <code className="block break-all rounded-md bg-[var(--bg)] px-2 py-2 text-xs">{value}</code>
+    </div>
+  )
+}
+
+function openWebUiImportJson(baseUrl: string, token: string) {
+  return JSON.stringify(
+    [
+      {
+        type: 'openapi',
+        url: baseUrl.replace(/\/$/, ''),
+        spec_type: 'url',
+        spec: '',
+        path: OPENAPI_SPEC_PATH,
+        auth_type: 'bearer',
+        key: token,
+        info: {
+          id: '',
+          name: 'Vector Collector',
+          description: 'Query logs via REST (no ingest)',
+        },
+      },
+    ],
+    null,
+    2,
+  )
+}
+
+function OpenApiConnectBlock({ baseUrl, token }: { baseUrl: string; token: string | null }) {
+  const origin = baseUrl.replace(/\/$/, '')
+  return (
+    <div className="space-y-3">
+      <h2 className="text-lg font-medium">OpenAPI</h2>
+      <p className="text-sm text-[var(--text-muted)]">
+        Open WebUI Tool Servers use two fields: <strong>URL</strong> (collector origin) and{' '}
+        <strong>Advanced → OpenAPI Spec</strong> (path). Do not paste the spec URL into URL or WebUI
+        will request <code>{origin}{OPENAPI_SPEC_PATH}/openapi.json</code>. Do not use{' '}
         <code>/api-docs/openapi.json</code> — that spec includes ingest.
       </p>
+      <CopyField label="URL" value={origin} />
+      <CopyField label="OpenAPI Spec path" value={OPENAPI_SPEC_PATH} />
+      {token ? (
+        <div>
+          <div className="mb-1 flex items-center justify-between gap-2">
+            <Label>Open WebUI import</Label>
+            <Button
+              variant="ghost"
+              onClick={() =>
+                downloadText('open-webui-vector-collector.json', openWebUiImportJson(origin, token))
+              }
+            >
+              Download
+            </Button>
+          </div>
+          <p className="text-sm text-[var(--text-muted)]">
+            Import this in Add Connection. It includes the query bearer token — treat the file as
+            secret.
+          </p>
+        </div>
+      ) : (
+        <p className="text-sm text-[var(--text-muted)]">
+          Reveal keys above to download an Open WebUI import file (includes the query token). Auth is
+          Bearer with that same token.
+        </p>
+      )}
     </div>
   )
 }
 
 function SettingsPanel() {
-  const [settings, setSettings] = useState<Settings | null>(null)
+  const [settings, setSettings] = useState<SettingsData | null>(null)
   const [publicUrl, setPublicUrl] = useState('')
   const [days, setDays] = useState('14')
   const [maxEvents, setMaxEvents] = useState('')

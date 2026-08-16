@@ -139,7 +139,7 @@ Removing a host (Hosts → Remove) revokes that machine’s ingest key; its hist
 
 Interactive OpenAPI docs (Swagger UI): **`/docs`** — full spec at `/api-docs/openapi.json` (includes ingest).
 
-**Open WebUI Tool Servers:** use the query-only spec at **`/api-docs/query.json`** plus the query bearer token from the MCP tab. That spec has no ingest endpoints. MCP clients should keep using `/mcp`.
+**Open WebUI Tool Servers:** set **URL** to the collector origin and **OpenAPI Spec** to **`/api-docs/query.json`** (not the default `openapi.json`). Use the query bearer token from Connect. That spec has no ingest endpoints. MCP clients should keep using `/mcp`.
 
 Bearer query key. Facets/search default to the last 1 hour if you omit a time window; prefer `filters.since` (`1h`, `24h`) over RFC3339. `GET /v1/query/schema` lists registered `hosts`.
 

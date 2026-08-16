@@ -536,9 +536,10 @@ function QueryApi() {
         <code>/api-docs/openapi.json</code> (includes ingest).
       </p>
       <p>
-        Open WebUI Tool Servers should use the query-only spec at <code>/api-docs/query.json</code> plus
-        the query bearer token from the admin MCP tab. That spec has no ingest endpoints. MCP clients
-        keep using <code>/mcp</code>.
+        Open WebUI Tool Servers: set URL to the collector origin and OpenAPI Spec to{' '}
+        <code>/api-docs/query.json</code> (not the default <code>openapi.json</code>), plus the query
+        bearer token from Connect. That spec has no ingest endpoints. MCP clients keep using{' '}
+        <code>/mcp</code>.
       </p>
 
       <h2 className="text-lg font-semibold text-[var(--text)]">Query (bearer query key)</h2>

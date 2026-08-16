@@ -4,6 +4,7 @@ import type {
   InputHTMLAttributes,
   PropsWithChildren,
   SelectHTMLAttributes,
+  TextareaHTMLAttributes,
 } from 'react'
 
 export function Button({
@@ -32,6 +33,18 @@ export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElem
     <input
       className={cn(
         'w-full rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm text-[var(--text)] outline-none focus:ring-2 focus:ring-[var(--ring)]',
+        className,
+      )}
+      {...props}
+    />
+  )
+}
+
+export function Textarea({ className, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  return (
+    <textarea
+      className={cn(
+        'w-full rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 py-2 font-mono text-xs leading-relaxed text-[var(--text)] outline-none focus:ring-2 focus:ring-[var(--ring)]',
         className,
       )}
       {...props}
